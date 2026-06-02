@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>latexdiff-zip</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --ink: #1f2430;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-dark: #1d4ed8;
+    --old: #cc2200;
+    --new: #006622;
+    --border: #d9dde3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    min-height: 100vh; padding: 2rem 1rem;
+  }
+  .card {
+    background: var(--card); width: 100%; max-width: 640px;
+    border: 1px solid var(--border); border-radius: 16px;
+    padding: 2rem; box-shadow: 0 6px 24px rgba(0,0,0,.06);
+  }
+  h1 { margin: 0 0 .25rem; font-size: 1.6rem; }
+  h1 code { background: #eef1f6; padding: .1em .35em; border-radius: 6px; font-size: .9em; }
+  p.lead { margin: 0 0 1.5rem; color: var(--muted); }
+  .drops { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 520px) { .drops { grid-template-columns: 1fr; } }
+  .drop {
+    border: 2px dashed var(--border); border-radius: 12px;
+    padding: 1.25rem 1rem; text-align: center; cursor: pointer;
+    transition: border-color .15s, background .15s; position: relative;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: #f0f5ff; }
+  .drop .tag { font-weight: 700; letter-spacing: .04em; font-size: .8rem; }
+  .drop.old .tag { color: var(--old); }
+  .drop.new .tag { color: var(--new); }
+  .drop .hint { color: var(--muted); font-size: .85rem; margin-top: .35rem; word-break: break-all; }
+  .drop input[type=file] { display: none; }
+  details { margin: 1.25rem 0 0; border-top: 1px solid var(--border); padding-top: 1rem; }
+  summary { cursor: pointer; color: var(--accent); font-size: .92rem; }
+  .field { margin-top: .9rem; display: flex; flex-direction: column; gap: .3rem; }
+  .field label { font-size: .85rem; color: var(--muted); }
+  .field input[type=text], .field select {
+    padding: .55rem .6rem; border: 1px solid var(--border); border-radius: 8px; font: inherit;
+  }
+  .check { flex-direction: row; align-items: center; gap: .5rem; }
+  button.go {
+    margin-top: 1.5rem; width: 100%; border: 0; border-radius: 10px;
+    background: var(--accent); color: #fff; font: inherit; font-weight: 600;
+    padding: .85rem; cursor: pointer; transition: background .15s;
+  }
+  button.go:hover { background: var(--accent-dark); }
+  button.go:disabled { opacity: .6; cursor: progress; }
+  #status { margin-top: 1rem; font-size: .9rem; min-height: 1.2em; }
+  #status.err { color: var(--old); }
+  #log {
+    margin-top: .75rem; display: none; background: #0f1729; color: #d7e0f5;
+    border-radius: 10px; padding: .8rem .9rem; font: .78rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap; word-break: break-word; max-height: 16rem; overflow: auto;
+  }
+  #result { margin-top: 1.25rem; display: none; }
+  #result iframe { width: 100%; height: 70vh; border: 1px solid var(--border); border-radius: 10px; }
+  #result a {
+    display: inline-block; margin-top: .75rem; color: var(--accent);
+    text-decoration: none; font-weight: 600;
+  }
+  .spinner {
+    display: inline-block; width: 1em; height: 1em; vertical-align: -.15em;
+    border: 2px solid #c7d2fe; border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .7s linear infinite; margin-right: .4em;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1><code>latexdiff-zip</code></h1>
+    <p class="lead">Drop two LaTeX project zips (e.g. Overleaf history exports) and get a
+      track-changes PDF — with side-by-side OLD/NEW figure comparisons.</p>
+
+    <form id="form">
+      <div class="drops">
+        <label class="drop old" id="drop-old">
+          <div class="tag">OLD VERSION</div>
+          <div class="hint" data-default="click or drop a .zip">click or drop a .zip</div>
+          <input type="file" name="old_zip" accept=".zip">
+        </label>
+        <label class="drop new" id="drop-new">
+          <div class="tag">NEW VERSION</div>
+          <div class="hint" data-default="click or drop a .zip">click or drop a .zip</div>
+          <input type="file" name="new_zip" accept=".zip">
+        </label>
+      </div>
+
+      <details>
+        <summary>Advanced options</summary>
+        <div class="field">
+          <label for="main_tex">Main .tex file (leave blank to auto-detect)</label>
+          <input type="text" id="main_tex" name="main_tex" placeholder="paper.tex">
+        </div>
+        <div class="field">
+          <label for="diff_type">Markup style</label>
+          <select id="diff_type" name="diff_type">
+            {% for t in diff_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field check">
+          <input type="checkbox" id="embed_figs" name="embed_figs" checked>
+          <label for="embed_figs">Append figure comparisons to the PDF</label>
+        </div>
+      </details>
+
+      <button type="submit" class="go" id="go">Generate diff PDF</button>
+    </form>
+
+    <div id="status"></div>
+    <pre id="log"></pre>
+    <div id="result">
+      <iframe id="preview" title="diff preview"></iframe>
+      <a id="download" download="diff.pdf">⬇ Download diff.pdf</a>
+    </div>
+  </div>
+
+<script>
+  // Wire up each drop zone: show the chosen file name, support drag & drop.
+  document.querySelectorAll('.drop').forEach(function (zone) {
+    var input = zone.querySelector('input[type=file]');
+    var hint = zone.querySelector('.hint');
+    function show() {
+      hint.textContent = input.files.length ? input.files[0].name
+                                            : hint.dataset.default;
+    }
+    input.addEventListener('change', show);
+    ['dragenter', 'dragover'].forEach(function (e) {
+      zone.addEventListener(e, function (ev) { ev.preventDefault(); zone.classList.add('over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (e) {
+      zone.addEventListener(e, function (ev) { ev.preventDefault(); zone.classList.remove('over'); });
+    });
+    zone.addEventListener('drop', function (ev) {
+      if (ev.dataTransfer.files.length) { input.files = ev.dataTransfer.files; show(); }
+    });
+  });
+
+  var form = document.getElementById('form');
+  var go = document.getElementById('go');
+  // NB: must not be named `status` — a global `var status` aliases the magic
+  // window.status string property, which silently coerces this element to a
+  // string and makes every status update a no-op.
+  var statusEl = document.getElementById('status');
+  var logBox = document.getElementById('log');
+  var result = document.getElementById('result');
+  var preview = document.getElementById('preview');
+  var download = document.getElementById('download');
+  var timer = null, started = 0, es = null;
+
+  function setBusy(busy) { go.disabled = busy; }
+
+  function tick() {
+    var secs = Math.round((Date.now() - started) / 1000);
+    statusEl.innerHTML = '<span class="spinner"></span>Building diff — ' + secs + 's elapsed…';
+  }
+
+  function appendLog(line) {
+    var atBottom = logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 4;
+    logBox.textContent += line + '\n';
+    if (atBottom) logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  function finish() {
+    if (timer) { clearInterval(timer); timer = null; }
+    if (es) { es.close(); es = null; }
+    setBusy(false);
+  }
+
+  form.addEventListener('submit', async function (ev) {
+    ev.preventDefault();
+
+    // The file inputs are display:none (hidden inside the drop zones), so the
+    // browser's native `required` validation can't show its popup — it would
+    // just silently refuse to submit. Validate here and show a real message.
+    var oldFile = form.old_zip.files.length;
+    var newFile = form.new_zip.files.length;
+    if (!oldFile || !newFile) {
+      statusEl.className = 'err';
+      statusEl.textContent = !oldFile && !newFile
+        ? 'Please choose both the OLD and the NEW .zip files.'
+        : (!oldFile ? 'Please choose the OLD .zip file.'
+                    : 'Please choose the NEW .zip file.');
+      return;
+    }
+
+    statusEl.className = '';
+    result.style.display = 'none';
+    logBox.style.display = 'block';
+    logBox.textContent = '';
+    setBusy(true);
+    started = Date.now();
+    tick();
+    timer = setInterval(tick, 1000);
+
+    var id;
+    try {
+      var res = await fetch('/jobs', { method: 'POST', body: new FormData(form) });
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok) {
+        statusEl.className = 'err';
+        statusEl.textContent = data.error || ('Could not start build (HTTP ' + res.status + ')');
+        finish();
+        return;
+      }
+      id = data.id;
+    } catch (e) {
+      statusEl.className = 'err';
+      statusEl.textContent = 'Request failed: ' + e;
+      finish();
+      return;
+    }
+
+    // Stream the build log live.
+    es = new EventSource('/jobs/' + id + '/events');
+    es.onmessage = function (e) { appendLog(e.data); };
+    es.addEventListener('done', function (e) {
+      finish();
+      if (e.data === 'DONE') {
+        statusEl.className = '';
+        statusEl.textContent = '✔ Done.';
+        preview.src = '/jobs/' + id + '/pdf';
+        download.href = '/jobs/' + id + '/pdf';
+        result.style.display = 'block';
+      } else {
+        statusEl.className = 'err';
+        statusEl.textContent = '✖ Build failed — see the log below.';
+      }
+    });
+    es.onerror = function () {
+      // Connection dropped; if we never finished, report it.
+      if (es) {
+        finish();
+        statusEl.className = 'err';
+        statusEl.textContent = '✖ Lost connection to the build log.';
+      }
+    };
+  });
+</script>
+</body>
+</html>

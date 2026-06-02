@@ -1,0 +1,31 @@
+# Web front-end for latexdiff-zip.
+#
+# Builds on the CLI image (which already has TeX Live, ImageMagick, the
+# latexdiff-zip script, etc.) and adds a small Flask app served by gunicorn.
+#
+# Build (CLI image first, then this one):
+#   podman build -t latexdiff-zip .
+#   podman build -t latexdiff-zip-web -f Containerfile.web .
+# Run:
+#   podman run --rm -p 8080:8080 latexdiff-zip-web
+#   # then open http://localhost:8080
+FROM latexdiff-zip:latest
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3-flask \
+        gunicorn \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY webapp/ /app/
+WORKDIR /app
+ENV HOME=/tmp
+
+# Override the CLI image's ENTRYPOINT so CMD launches the web server instead.
+ENTRYPOINT []
+# One threaded worker: all requests share the same process, so in-progress jobs,
+# their live log stream (Server-Sent Events) and the PDF download all see the same
+# state. --timeout 0 disables gunicorn's worker watchdog (long builds would trip
+# it); the app enforces its own LDZ_TIMEOUT (default 600s) per build instead.
+EXPOSE 8080
+CMD ["gunicorn", "-b", "0.0.0.0:8080", "-k", "gthread", "-w", "1", "--threads", "8", "--timeout", "0", "app:app"]

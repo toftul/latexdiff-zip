@@ -126,6 +126,40 @@ Docker.) The image is large because it is based on the official `texlive/texlive
 image, but it guarantees every dependency — including the optional figure-diff
 tooling — is present.
 
+## Web interface
+
+Prefer clicking to typing? There's a tiny drag-and-drop web UI. It runs the same
+container as its backend, so it needs no host dependencies beyond Podman.
+
+```sh
+./latexdiff-zip-web.sh          # builds the images on first run, then serves
+# open http://localhost:8080
+```
+
+Drop the **OLD** and **NEW** project zips, optionally tweak the markup style /
+main file / figure embedding under *Advanced options*, and click **Generate diff
+PDF**. The build log streams live to the page (so you can see flattening,
+latexdiff, the PDF passes and figure comparison as they happen); when it finishes
+the diff PDF is previewed inline with a download link.
+
+Useful variants:
+
+```sh
+./latexdiff-zip-web.sh 9000     # serve on a different port
+./latexdiff-zip-web.sh --build  # force a rebuild after editing the script/app
+```
+
+Under the hood [`Containerfile.web`](Containerfile.web) layers a small Flask app
+(served by gunicorn) on top of the CLI image; the app runs `latexdiff-zip` as a
+background job and streams its output to the browser via Server-Sent Events. Each
+build is capped at 10 minutes by default — raise it by passing `-e LDZ_TIMEOUT=1200`
+to `podman run`, or by editing the wrapper.
+
+> **Note:** the interface compiles uploaded LaTeX with `pdflatex`. Shell-escape
+> is off by default, but you should still only run it for projects you trust
+> (e.g. your own Overleaf exports), or behind your own network, not as a public
+> service.
+
 ## How it works
 
 1. Unzips both archives into a temp directory; if an archive contains a single
