@@ -28,7 +28,8 @@ The following commands must be on your `PATH`:
 - `unzip`
 - `latexdiff`
 - `latexpand`
-- `latexmk` (which invokes `pdflatex` and `bibtex`/`biber` as needed)
+- `pdflatex`
+- `bibtex` (or `biber`, for biblatex documents)
 
 
 | Option | Description |
