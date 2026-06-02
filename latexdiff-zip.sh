@@ -44,7 +44,7 @@ for f in "$old_zip" "$new_zip"; do
     [[ -f "$f" ]] || { echo "error: not a file: $f" >&2; exit 1; }
 done
 
-for cmd in unzip latexdiff latexpand pdflatex bibtex; do
+for cmd in unzip latexdiff latexpand latexmk; do
     command -v "$cmd" >/dev/null || { echo "error: missing dependency: $cmd" >&2; exit 1; }
 done
 
@@ -136,13 +136,11 @@ fi
 
 echo "building PDF..."
 cd "$tmp/build"
-# Don't use -halt-on-error: latexdiff markup often trips minor errors, but
-# pdflatex still reaches \bibliography and writes \bibdata to the .aux,
-# which bibtex needs to resolve citations.
-pdflatex -interaction=nonstopmode diff.tex >/dev/null 2>&1 || true
-bibtex diff >/dev/null 2>&1 || true
-pdflatex -interaction=nonstopmode diff.tex >/dev/null 2>&1 || true
-pdflatex -interaction=nonstopmode diff.tex >/dev/null 2>&1 || true
+# latexmk runs the right toolchain (pdflatex plus bibtex or biber, whichever
+# the document needs) the right number of times until references and citations
+# converge. -f keeps it going despite the minor errors latexdiff markup tends
+# to introduce, which a usable PDF still survives.
+latexmk -pdf -f -interaction=nonstopmode diff.tex >/dev/null 2>&1 || true
 
 if [[ ! -f diff.pdf ]]; then
     echo "error: PDF build failed. Tail of diff.log:" >&2
