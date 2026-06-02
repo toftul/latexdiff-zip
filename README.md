@@ -1,13 +1,13 @@
 # latexdiff-zip
 
 Produce a [`latexdiff`](https://ctan.org/pkg/latexdiff) PDF between two zipped LaTeX
-projects — for example, two snapshots downloaded from an
+projects. For example, two snapshots downloaded from an
 [Overleaf](https://www.overleaf.com/) project's history.
 
-Point it at `old.zip` and `new.zip`; it unpacks both, figures out the main `.tex`
-file, flattens `\input`/`\include` with `latexpand`, runs `latexdiff`, and
-compiles a marked-up diff PDF. Every intermediate file lives in a temp directory
-that is cleaned up on exit — the only artifact left behind is the PDF.
+Usage
+```sh
+./latexdiff-zip.sh [-m main.tex] [-o output.pdf] [-t TYPE] old.zip new.zip
+```
 
 ## Why
 
@@ -26,19 +26,6 @@ The following commands must be on your `PATH`:
 - `pdflatex`
 - `bibtex`
 
-On TeX Live, `latexdiff` and `latexpand` ship with the distribution. On Debian/Ubuntu:
-
-```sh
-sudo apt install texlive-extra-utils texlive-latex-extra
-```
-
-On macOS with MacTeX, they are already included.
-
-## Usage
-
-```sh
-./latexdiff-zip.sh [-m main.tex] [-o output.pdf] [-t TYPE] old.zip new.zip
-```
 
 | Option | Description |
 | --- | --- |
