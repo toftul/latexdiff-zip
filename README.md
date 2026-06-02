@@ -98,6 +98,34 @@ chmod +x latexdiff-zip.sh
 sudo cp latexdiff-zip.sh /usr/local/bin/latexdiff-zip
 ```
 
+## Run in a container (no host dependencies)
+
+If you'd rather not install TeX Live, ImageMagick and friends, use the bundled
+[`Containerfile`](Containerfile). The included wrapper builds the image on first
+use and runs everything inside the container:
+
+```sh
+./latexdiff-zip-podman.sh old.zip new.zip
+./latexdiff-zip-podman.sh -t CCHANGEBAR -c changed_figures old.zip new.zip
+```
+
+The wrapper mounts the current directory into the container, runs as your own
+user (so output files are owned by you, not root), and accepts all the same
+options as the script. Pass `--build` as the first argument to force a rebuild
+after changing the script.
+
+Prefer raw Podman/Docker? Build and run directly:
+
+```sh
+podman build -t latexdiff-zip .
+podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
+```
+
+(`docker build`/`docker run` work too; drop `--userns=keep-id` and `:Z` for
+Docker.) The image is large because it is based on the official `texlive/texlive`
+image, but it guarantees every dependency — including the optional figure-diff
+tooling — is present.
+
 ## How it works
 
 1. Unzips both archives into a temp directory; if an archive contains a single
