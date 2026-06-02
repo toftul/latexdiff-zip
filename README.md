@@ -11,7 +11,7 @@ chmod +x latexdiff-zip.sh
 ```
 Run:
 ```sh
-./latexdiff-zip.sh [-m main.tex] [-o output.pdf] [-t TYPE] old.zip new.zip
+./latexdiff-zip.sh [-m main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] old.zip new.zip
 ```
 
 ## Why
@@ -31,13 +31,37 @@ The following commands must be on your `PATH`:
 - `pdflatex`
 - `bibtex` (or `biber`, for biblatex documents)
 
+Optional, for the figure-diff feature (gracefully skipped if missing):
+
+- `ImageMagick` (`magick` or `convert`/`identify`) — builds the OLD/NEW collages.
+- `pdfunite` (from poppler) or `gs` (Ghostscript) — appends the collages to the PDF.
+- `python3` — matches figures by `\label` so renamed image files are still paired.
+
 
 | Option | Description |
 | --- | --- |
 | `-m main.tex` | Main `.tex` file, relative to the project root. Auto-detected if omitted. |
 | `-o output.pdf` | Output PDF path. Defaults to `diff.pdf` next to `new.zip`. |
 | `-t TYPE` | `latexdiff --type` value (`UNDERLINE`, `CFONT`, `CCHANGEBAR`, …). Default: `UNDERLINE`. |
+| `-F` | Do **not** append figure-diff collages to the PDF (they are appended by default). |
+| `-c DIR` | Also save the figure-diff collage PNGs into `DIR`. |
 | `-h` | Show help. |
+
+## Figure comparison
+
+Beyond the text diff, the script also compares figures. For every figure that
+changed between the two versions it builds a side-by-side collage with red
+**OLD** / green **NEW** banners, and — by default — appends those collages as
+extra pages at the end of the diff PDF.
+
+Figures are paired by their `\label` (parsed from the flattened source), so a
+figure still matches even if its image file was **renamed** (e.g.
+`plot_v1.pdf` → `plot_v2.pdf`); unlabelled figures fall back to matching by
+document order. Source images in any common format (`pdf`, `eps`, `png`, `jpg`,
+…) are rasterised to PNG before being composed.
+
+- Pass `-F` to skip embedding the collages in the PDF.
+- Pass `-c DIR` to also (or instead) write the collage PNGs into a folder.
 
 ### Examples
 
@@ -57,6 +81,12 @@ Use a different markup style:
 
 ```sh
 ./latexdiff-zip.sh -t CCHANGEBAR old.zip new.zip
+```
+
+Skip the figure collages in the PDF, but save them as PNGs in a folder:
+
+```sh
+./latexdiff-zip.sh -F -c changed_figures old.zip new.zip
 ```
 
 ### Install (optional)
@@ -80,6 +110,8 @@ sudo cp latexdiff-zip.sh /usr/local/bin/latexdiff-zip
    project alongside the diff so it compiles.
 6. Builds the PDF with `pdflatex` → `bibtex` → `pdflatex` ×2 to resolve
    references and citations.
+7. Compares the figures referenced in both versions, builds OLD/NEW collages for
+   the changed ones, and appends them to the PDF (unless `-F`).
 
 ## Notes & limitations
 
