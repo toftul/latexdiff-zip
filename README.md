@@ -6,6 +6,8 @@ projects. For example, two snapshots downloaded from an
 
 Usage
 ```sh
+curl -O https://raw.githubusercontent.com/toftul/latexdiff-zip/master/latexdiff-zip.sh
+chmod +x latexdiff-zip.sh
 ./latexdiff-zip.sh [-m main.tex] [-o output.pdf] [-t TYPE] old.zip new.zip
 ```
 
