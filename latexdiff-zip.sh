@@ -44,7 +44,7 @@ for f in "$old_zip" "$new_zip"; do
     [[ -f "$f" ]] || { echo "error: not a file: $f" >&2; exit 1; }
 done
 
-for cmd in unzip latexdiff latexpand latexmk; do
+for cmd in unzip latexdiff latexpand pdflatex; do
     command -v "$cmd" >/dev/null || { echo "error: missing dependency: $cmd" >&2; exit 1; }
 done
 
@@ -67,8 +67,10 @@ unzip -q "$new_zip_abs" -d "$tmp/new"
 # If the zip contained a single top-level directory, descend into it.
 descend_single_root() {
     local d="$1"
-    local entries
-    mapfile -t entries < <(find "$d" -mindepth 1 -maxdepth 1)
+    local entries=()
+    # Portable read loop (works on bash 3.2, e.g. stock macOS) in place of mapfile.
+    while IFS= read -r entry; do entries+=("$entry"); done \
+        < <(find "$d" -mindepth 1 -maxdepth 1)
     if [[ ${#entries[@]} -eq 1 && -d "${entries[0]}" ]]; then
         echo "${entries[0]}"
     else
@@ -80,8 +82,9 @@ new_root="$(descend_single_root "$tmp/new")"
 
 detect_main() {
     local root="$1"
-    local found
-    mapfile -t found < <(grep -l -E '^\s*\\documentclass' "$root"/*.tex 2>/dev/null || true)
+    local found=()
+    while IFS= read -r f; do found+=("$f"); done \
+        < <(grep -l -E '^\s*\\documentclass' "$root"/*.tex 2>/dev/null || true)
     if [[ ${#found[@]} -eq 1 ]]; then
         basename "${found[0]}"
     elif [[ ${#found[@]} -gt 1 ]]; then
@@ -136,11 +139,35 @@ fi
 
 echo "building PDF..."
 cd "$tmp/build"
-# latexmk runs the right toolchain (pdflatex plus bibtex or biber, whichever
-# the document needs) the right number of times until references and citations
-# converge. -f keeps it going despite the minor errors latexdiff markup tends
-# to introduce, which a usable PDF still survives.
-latexmk -pdf -f -interaction=nonstopmode diff.tex >/dev/null 2>&1 || true
+
+# We drive the toolchain by hand rather than via latexmk. latexdiff markup
+# routinely makes pdflatex exit non-zero (e.g. amsmath "Multiple \label's" when
+# a labelled equation is edited), and latexmk's rerun heuristics treat that as a
+# reason to stop after too few passes -- leaving every \ref as "??" and every
+# \cite undefined. The classic fixed sequence below always converges: the PDF
+# pdflatex emits despite those errors is still usable, so each pass ignores a
+# non-zero exit.
+runtex() { pdflatex -interaction=nonstopmode diff.tex >/dev/null 2>&1 || true; }
+
+runtex   # pass 1: write .aux (labels and \citation entries)
+
+# Run whichever bibliography backend the document actually uses.
+if [[ -f diff.bcf ]]; then
+    if command -v biber >/dev/null; then
+        biber diff >/dev/null 2>&1 || true
+    else
+        echo "warning: document needs biber but it is not installed; citations may stay unresolved" >&2
+    fi
+elif grep -q '\\bibdata' diff.aux 2>/dev/null; then
+    if command -v bibtex >/dev/null; then
+        bibtex diff >/dev/null 2>&1 || true
+    else
+        echo "warning: document needs bibtex but it is not installed; citations may stay unresolved" >&2
+    fi
+fi
+
+runtex   # pass 2: pull in the .bbl and resolve labels (writes \bibcite entries)
+runtex   # pass 3: read \bibcite back so citations and cross-references converge
 
 if [[ ! -f diff.pdf ]]; then
     echo "error: PDF build failed. Tail of diff.log:" >&2
