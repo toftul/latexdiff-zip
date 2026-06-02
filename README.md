@@ -4,10 +4,13 @@ Produce a [`latexdiff`](https://ctan.org/pkg/latexdiff) PDF between two zipped L
 projects. For example, two snapshots downloaded from an
 [Overleaf](https://www.overleaf.com/) project's history.
 
-Usage
+Usage. Download and make executable:
 ```sh
 curl -O https://raw.githubusercontent.com/toftul/latexdiff-zip/master/latexdiff-zip.sh
 chmod +x latexdiff-zip.sh
+```
+Run:
+```sh
 ./latexdiff-zip.sh [-m main.tex] [-o output.pdf] [-t TYPE] old.zip new.zip
 ```
 
