@@ -61,8 +61,12 @@
   button.go:disabled { opacity: .6; cursor: progress; }
   #status { margin-top: 1rem; font-size: .9rem; min-height: 1.2em; }
   #status.err { color: var(--old); }
+  /* The build log is collapsed into a spoiler by default; the high-level
+     progress lives in #status. Override the generic `details` rule above. */
+  #logwrap { display: none; margin-top: .75rem; border-top: 0; padding-top: 0; }
+  #logwrap > summary { color: var(--muted); font-size: .82rem; }
   #log {
-    margin-top: .75rem; display: none; background: #0f1729; color: #d7e0f5;
+    margin: .5rem 0 0; background: #0f1729; color: #d7e0f5;
     border-radius: 10px; padding: .8rem .9rem; font: .78rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
     white-space: pre-wrap; word-break: break-word; max-height: 16rem; overflow: auto;
   }
@@ -122,7 +126,10 @@
     </form>
 
     <div id="status"></div>
-    <pre id="log"></pre>
+    <details id="logwrap">
+      <summary>Show build log</summary>
+      <pre id="log"></pre>
+    </details>
     <div id="result">
       <iframe id="preview" title="diff preview"></iframe>
       <a id="download" download="diff.pdf">⬇ Download diff.pdf</a>
@@ -156,6 +163,7 @@
   // window.status string property, which silently coerces this element to a
   // string and makes every status update a no-op.
   var statusEl = document.getElementById('status');
+  var logWrap = document.getElementById('logwrap');
   var logBox = document.getElementById('log');
   var result = document.getElementById('result');
   var preview = document.getElementById('preview');
@@ -200,7 +208,8 @@
 
     statusEl.className = '';
     result.style.display = 'none';
-    logBox.style.display = 'block';
+    logWrap.style.display = 'block';
+    logWrap.open = false;          // keep the log spoiler collapsed by default
     logBox.textContent = '';
     setBusy(true);
     started = Date.now();
@@ -239,6 +248,7 @@
       } else {
         statusEl.className = 'err';
         statusEl.textContent = '✖ Build failed — see the log below.';
+        logWrap.open = true;       // auto-expand the log so the error is visible
       }
     });
     es.onerror = function () {
