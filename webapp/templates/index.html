@@ -80,37 +80,39 @@
     padding: .55rem .6rem; border: 1px solid var(--border); border-radius: 8px; font: inherit;
   }
   .check { flex-direction: row; align-items: center; gap: .5rem; }
-  /* The big round launch button. Pure nonsense, mostly. */
+  /* Round launch button that slowly morphs its outline — a smooth parametric
+     "blob" via animated border-radius. Calm at rest; a touch livelier (and
+     gently breathing) while a build runs. No spinning. */
   button.go {
     margin: 1.75rem auto; display: grid; place-items: center; gap: .1rem;
-    width: 7.5rem; height: 7.5rem; padding: .5rem; border: 0; border-radius: 50%;
+    width: 7.5rem; height: 7.5rem; padding: .5rem; border: 0;
+    border-radius: 49% 51% 52% 48% / 48% 50% 50% 52%;
     background: radial-gradient(circle at 32% 28%, #5a8f2a, #457120);
     color: #fff; font: inherit; font-size: .8rem; font-weight: 700; line-height: 1.2;
     text-align: center; cursor: pointer; position: relative;
     box-shadow: 0 8px 24px rgba(69,113,32,.35);
-    animation: bob 3s ease-in-out infinite;
-    transition: transform .15s, box-shadow .15s;
+    animation: blob 8s ease-in-out infinite;
+    transition: transform .2s, box-shadow .2s;
   }
-  button.go .go-emoji { font-size: 1.5rem; animation: wiggle 1.6s ease-in-out infinite; }
-  button.go::after {
-    content: ''; position: absolute; inset: -7px; border-radius: 50%;
-    border: 2px solid #457120; opacity: .5; pointer-events: none;
-    animation: pulsering 2s ease-out infinite;
-  }
+  button.go .go-emoji { font-size: 1.5rem; }
   button.go:hover {
-    transform: scale(1.08) rotate(-4deg); animation-play-state: paused;
+    transform: scale(1.06); animation-play-state: paused;
     box-shadow: 0 12px 32px rgba(69,113,32,.45);
   }
-  button.go:active { transform: scale(.95); animation-play-state: paused; }
-  button.go:disabled { opacity: .7; cursor: progress; animation: whirl .9s linear infinite; }
-  button.go:disabled::after { animation-play-state: paused; }
-  @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
-  @keyframes wiggle { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } }
-  @keyframes pulsering { 0% { transform: scale(1); opacity: .5; } 100% { transform: scale(1.45); opacity: 0; } }
-  @keyframes whirl { to { transform: rotate(360deg); } }
-  /* …but be polite to people who don't want the circus. */
+  button.go:active { transform: scale(.96); animation-play-state: paused; }
+  button.go:disabled {
+    opacity: .8; cursor: progress;
+    animation: blob 4s ease-in-out infinite, breathe 2.2s ease-in-out infinite;
+  }
+  @keyframes blob {
+    0%, 100% { border-radius: 42% 58% 57% 43% / 45% 47% 53% 55%; }
+    33%      { border-radius: 60% 40% 35% 65% / 55% 60% 40% 45%; }
+    66%      { border-radius: 38% 62% 63% 37% / 60% 40% 60% 40%; }
+  }
+  @keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+  /* Respect users who prefer no motion: settle into a plain round shape. */
   @media (prefers-reduced-motion: reduce) {
-    button.go, button.go .go-emoji, button.go::after { animation: none; }
+    button.go, button.go:disabled { animation: none; border-radius: 50%; }
   }
   #status { margin-top: 1rem; font-size: .9rem; min-height: 1.2em; }
   #status.err { color: var(--old); }
@@ -206,7 +208,7 @@
       </details>
 
       <button type="submit" class="go" id="go" aria-label="Generate diff PDF">
-        <span class="go-emoji" aria-hidden="true">👽️</span>
+        <span class="go-emoji" aria-hidden="true">🐮</span>
         <span>Generate diff PDF</span>
       </button>
     </form>
