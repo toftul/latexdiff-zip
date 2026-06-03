@@ -1,0 +1,38 @@
+# Quadlet container unit: the latexdiff-zip web app.
+#
+# It compiles untrusted, attacker-controlled LaTeX, so it is locked down hard:
+#   - ONLY on ldz-internal (no internet egress; cannot exfiltrate or scan LAN)
+#   - never published to the host (no inbound port; cloudflared reaches it by name)
+#   - read-only root filesystem, all caps dropped, no new privileges
+#   - scratch space on tmpfs (wiped on restart), resources capped
+[Unit]
+Description=latexdiff-zip web app (runs untrusted LaTeX; isolated, no egress)
+
+[Container]
+ContainerName=webapp
+Image=latexdiff-zip-web:latest
+Network=ldz-internal.network
+
+# --- hardening -------------------------------------------------------------
+NoNewPrivileges=true
+DropCapability=ALL
+ReadOnly=true
+# The app keeps JOBS_ROOT, HOME=/tmp and every TeX build dir under /tmp, so a
+# read-only root needs writable scratch. tmpfs => wiped on each restart (no job
+# leakage) but RAM-backed; if you expect very large projects, raise the sizes or
+# switch /tmp to a named volume (see deploy/README.md) and lift Memory to match.
+Tmpfs=/tmp:size=2g,mode=1777
+Tmpfs=/var/tmp:size=256m,mode=1777
+Tmpfs=/run:size=64m
+# Tighten the per-build watchdog (default 600s) to bound resource abuse.
+Environment=LDZ_TIMEOUT=300
+# Resource caps have no dedicated Quadlet keys -> pass raw podman args.
+# Memory leaves headroom above the tmpfs scratch ceiling.
+PodmanArgs=--memory=3g --cpus=2 --pids-limit=512
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

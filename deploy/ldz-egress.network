@@ -1,0 +1,7 @@
+# Quadlet network unit: a normal outbound network. ONLY cloudflared attaches to
+# this one (in addition to ldz-internal), so it can dial out to Cloudflare.
+[Unit]
+Description=latexdiff-zip egress network (cloudflared outbound)
+
+[Network]
+NetworkName=ldz-egress

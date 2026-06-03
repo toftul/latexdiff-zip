@@ -1,0 +1,29 @@
+# Quadlet container unit: the Cloudflare Tunnel daemon.
+#
+# Attaches to BOTH networks: ldz-internal (to reach the webapp container by name)
+# and ldz-egress (to dial out to Cloudflare). It only shuffles bytes and never
+# executes uploaded content, so it is the only piece allowed outbound.
+#
+# The public hostname route (latexdiff.toftul.net -> http://webapp:8080) is
+# configured in the Cloudflare Zero Trust dashboard, not here. This daemon just
+# needs the tunnel token, supplied via cloudflared.env (see cloudflared.env.example).
+[Unit]
+Description=cloudflared tunnel for latexdiff.toftul.net
+After=webapp.service
+Wants=webapp.service
+
+[Container]
+ContainerName=cloudflared
+Image=docker.io/cloudflare/cloudflared:latest
+Network=ldz-internal.network
+Network=ldz-egress.network
+EnvironmentFile=%h/.config/containers/systemd/cloudflared.env
+# Light hardening (this container is not the untrusted-code surface, but cheap).
+NoNewPrivileges=true
+Exec=tunnel --no-autoupdate run
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target
