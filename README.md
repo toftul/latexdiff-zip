@@ -138,9 +138,13 @@ container as its backend, so it needs no host dependencies beyond Podman.
 
 Drop the **OLD** and **NEW** project zips, optionally tweak the markup style /
 main file / figure embedding under *Advanced options*, and click **Generate diff
-PDF**. The build log streams live to the page (so you can see flattening,
-latexdiff, the PDF passes and figure comparison as they happen); when it finishes
-the diff PDF is previewed inline with a download link.
+PDF**. A live status shows the current build stage (flattening, latexdiff, the PDF
+passes, figure comparison), with the full log one click away under *Show build
+log*. When it finishes the diff PDF is previewed inline, with **Download** /
+**Open in new tab** links and a **Start over** button.
+
+There's also a light/dark theme toggle, and your markup-style and figure-embedding
+choices are remembered between visits.
 
 Useful variants:
 
