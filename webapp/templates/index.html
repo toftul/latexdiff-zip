@@ -80,13 +80,38 @@
     padding: .55rem .6rem; border: 1px solid var(--border); border-radius: 8px; font: inherit;
   }
   .check { flex-direction: row; align-items: center; gap: .5rem; }
+  /* The big round launch button. Pure nonsense, mostly. */
   button.go {
-    margin-top: 1.5rem; width: 100%; border: 0; border-radius: 10px;
-    background: var(--accent); color: #fff; font: inherit; font-weight: 600;
-    padding: .85rem; cursor: pointer; transition: background .15s;
+    margin: 1.75rem auto; display: grid; place-items: center; gap: .1rem;
+    width: 7.5rem; height: 7.5rem; padding: .5rem; border: 0; border-radius: 50%;
+    background: radial-gradient(circle at 32% 28%, #5a8f2a, #457120);
+    color: #fff; font: inherit; font-size: .8rem; font-weight: 700; line-height: 1.2;
+    text-align: center; cursor: pointer; position: relative;
+    box-shadow: 0 8px 24px rgba(69,113,32,.35);
+    animation: bob 3s ease-in-out infinite;
+    transition: transform .15s, box-shadow .15s;
   }
-  button.go:hover { background: var(--accent-dark); }
-  button.go:disabled { opacity: .6; cursor: progress; }
+  button.go .go-emoji { font-size: 1.5rem; animation: wiggle 1.6s ease-in-out infinite; }
+  button.go::after {
+    content: ''; position: absolute; inset: -7px; border-radius: 50%;
+    border: 2px solid #457120; opacity: .5; pointer-events: none;
+    animation: pulsering 2s ease-out infinite;
+  }
+  button.go:hover {
+    transform: scale(1.08) rotate(-4deg); animation-play-state: paused;
+    box-shadow: 0 12px 32px rgba(69,113,32,.45);
+  }
+  button.go:active { transform: scale(.95); animation-play-state: paused; }
+  button.go:disabled { opacity: .7; cursor: progress; animation: whirl .9s linear infinite; }
+  button.go:disabled::after { animation-play-state: paused; }
+  @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+  @keyframes wiggle { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } }
+  @keyframes pulsering { 0% { transform: scale(1); opacity: .5; } 100% { transform: scale(1.45); opacity: 0; } }
+  @keyframes whirl { to { transform: rotate(360deg); } }
+  /* …but be polite to people who don't want the circus. */
+  @media (prefers-reduced-motion: reduce) {
+    button.go, button.go .go-emoji, button.go::after { animation: none; }
+  }
   #status { margin-top: 1rem; font-size: .9rem; min-height: 1.2em; }
   #status.err { color: var(--old); }
   /* The build log is collapsed into a spoiler by default; the high-level
@@ -114,6 +139,17 @@
     border-radius: 50%; animation: spin .7s linear infinite; margin-right: .4em;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+  /* A very serious load-bearing cow. Vanishes once the PDF is ready. */
+  .cow { margin: 1.5rem auto 0; text-align: center; }
+  .cow img {
+    max-width: 260px; width: 100%; border-radius: 12px;
+    border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0,0,0,.08);
+  }
+  .credits {
+    margin: 1.5rem auto 0; text-align: center; color: var(--muted); font-size: .82rem;
+  }
+  .credits a { color: var(--accent); text-decoration: none; }
+  .credits a:hover { text-decoration: underline; }
 </style>
 <script>
   // Set the theme before first paint to avoid a flash of the wrong colors.
@@ -135,7 +171,7 @@
             aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
     <h1><code>latexdiff-zip</code></h1>
     <p class="lead">Drop two LaTeX project zips (e.g. Overleaf history exports) and get a
-      track-changes PDF — with side-by-side OLD/NEW figure comparisons.</p>
+      track-changes PDF!<br>We support figure comparisons 😎</p>
 
     <form id="form">
       <div class="drops">
@@ -169,7 +205,10 @@
         </div>
       </details>
 
-      <button type="submit" class="go" id="go">Generate diff PDF</button>
+      <button type="submit" class="go" id="go" aria-label="Generate diff PDF">
+        <span class="go-emoji" aria-hidden="true">👽️</span>
+        <span>Generate diff PDF</span>
+      </button>
     </form>
 
     <div id="status"></div>
@@ -177,6 +216,9 @@
       <summary>Show build log</summary>
       <pre id="log"></pre>
     </details>
+    <figure class="cow" id="cow">
+      <img src="{{ url_for('static', filename='perhaps-cow.gif') }}" alt="A dancing cow">
+    </figure>
     <div id="result">
       <iframe id="preview" title="diff preview"></iframe>
       <div class="result-actions">
@@ -186,6 +228,12 @@
       </div>
     </div>
   </div>
+
+  <footer class="credits">
+    Idea by <strong>Ivan Toftul</strong> · built by
+    <a href="https://claude.com/claude-code" target="_blank" rel="noopener">Claude Code</a> ·
+    <a href="https://github.com/toftul/latexdiff-zip" target="_blank" rel="noopener">GitHub</a>
+  </footer>
 
 <script>
   // Wire up each drop zone: show the chosen file name, support drag & drop.
@@ -223,6 +271,7 @@
   var openTab = document.getElementById('open-tab');
   var restart = document.getElementById('restart');
   var themeToggle = document.getElementById('theme-toggle');
+  var cow = document.getElementById('cow');
   var timer = null, started = 0, es = null;
 
   // Dark-mode toggle: overrides the OS setting and persists the choice. The
@@ -322,6 +371,7 @@
 
     statusEl.className = '';
     result.style.display = 'none';
+    cow.style.display = '';        // the cow watches over every build
     logWrap.style.display = 'block';
     logWrap.open = false;          // keep the log spoiler collapsed by default
     logBox.textContent = '';
@@ -361,6 +411,7 @@
         preview.src = pdfUrl;
         download.href = pdfUrl;
         openTab.href = pdfUrl;
+        cow.style.display = 'none';   // the PDF is here; the cow's work is done
         result.style.display = 'block';
       } else {
         statusEl.className = 'err';
@@ -390,6 +441,7 @@
     });
     result.style.display = 'none';
     logWrap.style.display = 'none';
+    cow.style.display = '';        // welcome the cow back for the next run
     statusEl.className = '';
     statusEl.textContent = '';
     window.scrollTo({ top: 0, behavior: 'smooth' });
