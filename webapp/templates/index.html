@@ -173,8 +173,7 @@
             aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
     <h1><code>latexdiff-zip</code></h1>
     <p class="lead">Drop two LaTeX project zips (e.g. Overleaf history exports) and get a
-      track-changes PDF!<br>We support figure comparisons 😎<br>
-      <small>Max combined upload size: {{ max_upload_mb }}&nbsp;MB.</small></p>
+      track-changes PDF!<br>We support figure comparisons 😎</p>
 
     <form id="form">
       <div class="drops">
@@ -369,19 +368,6 @@
         ? 'Please choose both the OLD and the NEW .zip files.'
         : (!oldFile ? 'Please choose the OLD .zip file.'
                     : 'Please choose the NEW .zip file.');
-      return;
-    }
-
-    // Reject oversized uploads up front: the Cloudflare proxy in front of this
-    // service returns an opaque 413 above its body cap, so catch it here with a
-    // clear message. MAX_UPLOAD_MB mirrors the server's MAX_CONTENT_LENGTH.
-    var MAX_UPLOAD_MB = {{ max_upload_mb }};
-    var totalBytes = form.old_zip.files[0].size + form.new_zip.files[0].size;
-    if (totalBytes > MAX_UPLOAD_MB * 1024 * 1024) {
-      statusEl.className = 'err';
-      statusEl.textContent = 'The two files total ' +
-        (totalBytes / (1024 * 1024)).toFixed(1) + ' MB, over the ' +
-        MAX_UPLOAD_MB + ' MB limit. Please trim or split the projects.';
       return;
     }
 

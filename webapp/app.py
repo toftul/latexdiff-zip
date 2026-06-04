@@ -17,11 +17,7 @@ import uuid
 from flask import Flask, Response, abort, jsonify, render_template, request, send_file
 
 app = Flask(__name__)
-# Cloudflare Free/Pro proxies cap the request body at 100 MB (HTTP 413 above
-# that), and this service sits behind a Cloudflare Tunnel, so stay safely under
-# that ceiling. Overleaf history exports are normally a few MB.
-MAX_UPLOAD_MB = 95
-app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB per request
 
 # latexdiff --type values worth offering in the UI.
 DIFF_TYPES = ["UNDERLINE", "CFONT", "CCHANGEBAR", "CULINECHBAR", "BOLD"]
@@ -110,9 +106,7 @@ def _run_build(job_dir, cmd):
 
 @app.get("/")
 def index():
-    return render_template(
-        "index.html", diff_types=DIFF_TYPES, max_upload_mb=MAX_UPLOAD_MB
-    )
+    return render_template("index.html", diff_types=DIFF_TYPES)
 
 
 @app.post("/jobs")
@@ -163,7 +157,6 @@ def job_events(job_id):
     def stream():
         offset = 0
         buf = ""
-        last_send = time.monotonic()
         while True:
             try:
                 with open(log_path, "r") as f:
@@ -173,11 +166,9 @@ def job_events(job_id):
             except FileNotFoundError:
                 chunk = ""
             buf += chunk
-            sent = False
             while "\n" in buf:
                 line, buf = buf.split("\n", 1)
                 yield f"data: {line}\n\n"
-                sent = True
 
             status = "RUNNING"
             try:
@@ -189,17 +180,6 @@ def job_events(job_id):
                     yield f"data: {buf}\n\n"
                 yield f"event: done\ndata: {status}\n\n"
                 return
-
-            # Keep the stream alive through proxies during long, silent build
-            # steps: Cloudflare drops a proxied connection idle for ~100s. A
-            # comment line (": ...") is valid SSE that EventSource clients ignore.
-            now = time.monotonic()
-            if sent:
-                last_send = now
-            elif now - last_send >= 15:
-                yield ": keepalive\n\n"
-                last_send = now
-
             time.sleep(0.4)
 
     return Response(
