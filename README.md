@@ -1,11 +1,12 @@
 # latexdiff-zip
 
 Turn two zipped LaTeX projects (e.g. Overleaf history exports) into one
-track-changes PDF — text *and* figures.
+track-changes PDF — text ***and*** figures.
 
-### 👉 I host a ready-to-use copy: **<https://latexdiff-web.toftul.net/>**
+I host a ready-to-use copy: </br>
+**<https://latexdiff-web.toftul.net/>**
 
-Drag in your two `.zip` files, get a diff PDF back. Nothing to install.
+Drag in your two `.zip` files, get a diff PDF back. 
 
 ## Run it yourself
 
@@ -31,7 +32,7 @@ chmod +x latexdiff-zip.sh
 
 ## On Overleaf? Diff right there
 
-You can run `latexdiff` *inside* Overleaf — no zips, no download. [Here's the trick.](OVERLEAF.md)
+You can run `latexdiff` *inside* Overleaf. [Here's the trick.](OVERLEAF.md)
 
 ## Docs
 
@@ -41,7 +42,7 @@ You can run `latexdiff` *inside* Overleaf — no zips, no download. [Here's the 
 
 ## Feedback
 
-Spotted a bug or have an idea? [Open an issue](https://github.com/toftul/latexdiff-zip/issues) — I'd love the feedback. 🙂
+Spotted a bug or have an idea? [Open an issue](https://github.com/toftul/latexdiff-zip/issues) 🐮
 
 ## License
 
