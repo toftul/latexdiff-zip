@@ -16,7 +16,7 @@ Drag in your two `.zip` files, get a diff PDF back.
 ./latexdiff-zip-web.sh        # builds on first run → http://localhost:8080
 ```
 
-**CLI** — needs `latexdiff`, `latexpand`, `pdflatex` & friends on your `PATH`:
+**CLI** — needs $\LaTeX$ installed in the system:
 
 ```sh
 curl -O https://raw.githubusercontent.com/toftul/latexdiff-zip/main/latexdiff-zip.sh
@@ -24,7 +24,7 @@ chmod +x latexdiff-zip.sh
 ./latexdiff-zip.sh old.zip new.zip
 ```
 
-**CLI, no dependencies** — run it inside the container instead:
+**CLI (container)** — run it inside the container instead:
 
 ```sh
 ./latexdiff-zip-podman.sh old.zip new.zip
