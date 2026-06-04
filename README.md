@@ -160,9 +160,17 @@ build is capped at 10 minutes by default — raise it by passing `-e LDZ_TIMEOUT
 to `podman run`, or by editing the wrapper.
 
 > **Note:** the interface compiles uploaded LaTeX with `pdflatex`. Shell-escape
-> is off by default, but you should still only run it for projects you trust
-> (e.g. your own Overleaf exports), or behind your own network, not as a public
-> service.
+> is off by default, but it is still a code-execution surface, so only run it for
+> projects you trust, or isolate it as described below.
+
+### Hosting it publicly (Cloudflare Tunnel)
+
+To reach the web UI from anywhere — even with **no public IP** — see
+[`DEPLOY.md`](DEPLOY.md). It walks through exposing it at your own domain through a
+**Cloudflare Tunnel**, with the container running in a dedicated VM. Because it runs
+untrusted LaTeX with no login, follow the security notes there: keep it in a throwaway
+VM, block the VM's access to the rest of your LAN, rate-limit at the edge, and patch
+the image regularly.
 
 ## How it works
 
@@ -188,6 +196,37 @@ to `podman run`, or by editing the wrapper.
   of `diff.log` is printed to help diagnose.
 - Both projects must share the same main filename, or you'll need to pass `-m`.
 - Engine is fixed to `pdflatex`; XeLaTeX/LuaLaTeX projects aren't supported yet.
+
+## Diffing directly in Overleaf (no download)
+
+If you'd rather stay inside Overleaf, you can run `latexdiff` there without exporting any
+zips. See Overleaf's own guide:
+<https://www.overleaf.com/learn/latex/Articles/How_to_use_latexdiff_on_Overleaf>.
+
+The method I like: keep the old version of your main file in the project (e.g.
+`monoclinic_CD_first_submit.tex`) next to the current one (`monoclinic_CD.tex`), add a
+`diff.tex` file with the content below, and compile **`diff.tex`** as the main document. It
+shells out to `latexdiff` at build time and `\input`s the result:
+
+```latex
+% based on
+% https://tex.stackexchange.com/a/603351/249682
+
+\RequirePackage{shellesc}
+
+\newcommand{\oldFile}{monoclinic_CD_first_submit}
+\newcommand{\newFile}{monoclinic_CD}
+
+\ShellEscape{latexdiff "\oldFile.tex" "\newFile.tex" > diff_result.tex}
+
+\input{diff_result}
+\documentclass{dummy}
+```
+
+Set `\oldFile` / `\newFile` to your two filenames. This relies on shell-escape, which
+Overleaf enables by default. Compared with `latexdiff-zip`, it diffs a single `.tex` file
+rather than a whole flattened project, and produces no figure collages — but it needs no
+local tools and no downloads.
 
 ## License
 
