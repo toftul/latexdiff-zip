@@ -1,5 +1,7 @@
 # Deploying latexdiff-zip with a Cloudflare Tunnel
 
+[← back to README](README.md)
+
 Publishes the web UI at **https://latexdiff.toftul.net** from a home server with **no public
 IP**. `cloudflared` dials *out* to Cloudflare, so there's no port-forwarding and nothing
 inbound is opened.

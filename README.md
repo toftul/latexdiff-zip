@@ -29,9 +29,13 @@ chmod +x latexdiff-zip.sh
 ./latexdiff-zip-podman.sh old.zip new.zip
 ```
 
+## On Overleaf? Diff right there
+
+You can run `latexdiff` *inside* Overleaf — no zips, no download. [Here's the trick.](OVERLEAF.md)
+
 ## Docs
 
-- [**Usage & options**](USAGE.md) — every CLI flag, how it works, limitations, and a no-download Overleaf trick.
+- [**Usage & options**](USAGE.md) — every CLI flag, how it works, and limitations.
 - [**Figure comparison**](FIGURES.md) — how changed figures get paired and diffed.
 - [**Self-hosting**](DEPLOY.md) — put your own public copy online with a Cloudflare Tunnel.
 
