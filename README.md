@@ -4,7 +4,7 @@ Turn two zipped LaTeX projects (e.g. Overleaf history exports) into one
 track-changes PDF — text ***and*** figures.
 
 I host a ready-to-use copy: </br>
-**<https://latexdiff-web.toftul.net/>**
+**<https://latexdiff.toftul.net/>**
 
 Drag in your two `.zip` files, get a diff PDF back. 
 
