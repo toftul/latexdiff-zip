@@ -3,7 +3,7 @@
 [← back to README](README.md)
 
 ```sh
-./latexdiff-zip.sh [-m main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] old.zip new.zip
+./latexdiff-zip.sh [-m old-main.tex] [-M new-main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] old.zip new.zip
 ```
 
 It produces a [`latexdiff`](https://ctan.org/pkg/latexdiff) PDF between two zipped LaTeX
@@ -31,7 +31,8 @@ container.
 
 | Option | Description |
 | --- | --- |
-| `-m main.tex` | Main `.tex` file, relative to the project root. Auto-detected if omitted. |
+| `-m main.tex` | Main `.tex` file of the **old** project, relative to its root. Auto-detected if omitted. |
+| `-M main.tex` | Main `.tex` file of the **new** project. Auto-detected if omitted; the two projects may use different names. |
 | `-o output.pdf` | Output PDF path. Defaults to `diff.pdf` next to `new.zip`. |
 | `-t TYPE` | `latexdiff --type` value (`UNDERLINE`, `CFONT`, `CCHANGEBAR`, …). Default: `UNDERLINE`. |
 | `-F` | Do **not** append figure-diff collages to the PDF (appended by default). |
@@ -46,6 +47,9 @@ container.
 
 # Pick the main file and output path explicitly
 ./latexdiff-zip.sh -m paper.tex -o ~/Desktop/changes.pdf v1.zip v2.zip
+
+# The two projects' main files have different names
+./latexdiff-zip.sh -m old-main.tex -M new-main.tex v1.zip v2.zip
 
 # Different markup style
 ./latexdiff-zip.sh -t CCHANGEBAR old.zip new.zip
@@ -88,7 +92,8 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
 ## How it works
 
 1. Unzips both archives; if an archive has a single top-level folder, descends into it.
-2. Detects the main file (the `.tex` with `\documentclass`; override with `-m`).
+2. Detects each project's main file independently (the `.tex` with `\documentclass`;
+   override with `-m` for the old project, `-M` for the new).
 3. Flattens each project into one file with `latexpand --keep-comments`.
 4. Runs `latexdiff --type=<TYPE> --append-safecmd=label` on the two flattened files.
 5. Copies all non-main files (figures, `.bib`, `.cls`, `.sty`, …) from the **new** project
@@ -103,5 +108,7 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
   old version won't be present.
 - `pdflatex` runs without `-halt-on-error`: `latexdiff` markup often trips minor errors, so
   the build pushes through them. If no PDF is produced, the tail of `diff.log` is printed.
-- Both projects must share the same main filename, or pass `-m`.
+- Each project's main file is detected independently, so the two may have different
+  filenames (e.g. a renamed Overleaf project). If a project has several `\documentclass`
+  files, pass `-m` (old) / `-M` (new) to disambiguate.
 - Engine is fixed to `pdflatex`; XeLaTeX/LuaLaTeX aren't supported yet.

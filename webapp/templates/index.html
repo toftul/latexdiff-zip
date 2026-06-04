@@ -79,6 +79,12 @@
   .field input[type=text], .field select {
     padding: .55rem .6rem; border: 1px solid var(--border); border-radius: 8px; font: inherit;
   }
+  /* Two main-.tex fields side by side, mirroring the OLD/NEW drop zones. */
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 520px) { .field-row { grid-template-columns: 1fr; } }
+  .field label strong.old { color: var(--old); }
+  .field label strong.new { color: var(--new); }
+  .field label .dim { font-weight: 400; opacity: .85; }
   .check { flex-direction: row; align-items: center; gap: .5rem; }
   /* Round launch button that slowly morphs its outline — a smooth parametric
      "blob" via animated border-radius. Calm at rest; a touch livelier (and
@@ -191,9 +197,15 @@
 
       <details>
         <summary>Advanced options</summary>
-        <div class="field">
-          <label for="main_tex">Main .tex file (leave blank to auto-detect)</label>
-          <input type="text" id="main_tex" name="main_tex" placeholder="paper.tex">
+        <div class="field-row">
+          <div class="field">
+            <label for="main_tex_old"><strong class="old">OLD</strong> main .tex <span class="dim">— blank = auto-detect</span></label>
+            <input type="text" id="main_tex_old" name="main_tex_old" placeholder="auto-detect">
+          </div>
+          <div class="field">
+            <label for="main_tex_new"><strong class="new">NEW</strong> main .tex <span class="dim">— blank = auto-detect</span></label>
+            <input type="text" id="main_tex_new" name="main_tex_new" placeholder="auto-detect">
+          </div>
         </div>
         <div class="field">
           <label for="diff_type">Markup style</label>

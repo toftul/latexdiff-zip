@@ -13,7 +13,8 @@
 
 set -euo pipefail
 
-main_tex=""
+main_old=""      # -m: main .tex for the OLD project (auto-detected if empty)
+main_new=""      # -M: main .tex for the NEW project (auto-detected if empty)
 out_pdf=""
 diff_type="UNDERLINE"
 embed_figs=1     # append figure collages to the diff PDF (default on); -F disables
@@ -294,9 +295,12 @@ merge_pdfs() {
 
 usage() {
     cat >&2 <<EOF
-Usage: $(basename "$0") [-m main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] old.zip new.zip
+Usage: $(basename "$0") [-m main.tex] [-M main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] old.zip new.zip
 
-  -m main.tex    Main .tex file (relative to project root). Auto-detected if omitted.
+  -m main.tex    Main .tex file in the OLD project (relative to its root).
+                 Auto-detected (the file containing \\documentclass) if omitted.
+  -M main.tex    Main .tex file in the NEW project. Auto-detected if omitted.
+                 The two projects may use different main-file names.
   -o output.pdf  Output PDF path (default: <dir of new.zip>/diff.pdf).
   -t TYPE        latexdiff --type value (default: UNDERLINE).
   -F             Do not append figure-diff collages to the PDF (on by default).
@@ -305,9 +309,10 @@ EOF
     exit 2
 }
 
-while getopts ":m:o:t:c:Fh" opt; do
+while getopts ":m:M:o:t:c:Fh" opt; do
     case "$opt" in
-        m) main_tex="$OPTARG" ;;
+        m) main_old="$OPTARG" ;;
+        M) main_new="$OPTARG" ;;
         o) out_pdf="$OPTARG" ;;
         t) diff_type="$OPTARG" ;;
         c) fig_dir="$OPTARG" ;;
@@ -362,17 +367,22 @@ descend_single_root() {
 old_root="$(descend_single_root "$tmp/old")"
 new_root="$(descend_single_root "$tmp/new")"
 
+# Auto-detect the main .tex in a project root: the single file whose line starts
+# with \documentclass. Echoes its basename, or exits with a helpful message when
+# there are zero or several candidates. $2 is the flag to suggest on ambiguity.
 detect_main() {
-    local root="$1"
+    local root="$1" flag="$2"
     local found=()
+    # [[:space:]] rather than \s: BSD grep (stock macOS) has no \s. -h hides
+    # filenames; we only need the names grep -l prints.
     while IFS= read -r f; do found+=("$f"); done \
-        < <(grep -l -E '^\s*\\documentclass' "$root"/*.tex 2>/dev/null || true)
+        < <(grep -l -E '^[[:space:]]*\\documentclass' "$root"/*.tex 2>/dev/null || true)
     if [[ ${#found[@]} -eq 1 ]]; then
         basename "${found[0]}"
     elif [[ ${#found[@]} -gt 1 ]]; then
         echo "error: multiple candidate main .tex files in $root:" >&2
         printf '  %s\n' "${found[@]}" >&2
-        echo "  pass -m <filename> to choose one." >&2
+        echo "  pass $flag <filename> to choose one." >&2
         exit 1
     else
         echo "error: no .tex file with \\documentclass found in $root" >&2
@@ -380,23 +390,23 @@ detect_main() {
     fi
 }
 
-if [[ -z "$main_tex" ]]; then
-    main_old="$(detect_main "$old_root")"
-    main_new="$(detect_main "$new_root")"
-    if [[ "$main_old" != "$main_new" ]]; then
-        echo "error: main file differs between zips ($main_old vs $main_new); pass -m." >&2
-        exit 1
-    fi
-    main_tex="$main_new"
+# Resolve each project's main file independently (-m for old, -M for new); a
+# side left unset is auto-detected. This lets the two zips use different
+# main-file names, e.g. an Overleaf project that was renamed between exports.
+[[ -n "$main_old" ]] || main_old="$(detect_main "$old_root" -m)"
+[[ -n "$main_new" ]] || main_new="$(detect_main "$new_root" -M)"
+
+[[ -f "$old_root/$main_old" ]] || { echo "error: $main_old not found in old zip root ($old_root)" >&2; exit 1; }
+[[ -f "$new_root/$main_new" ]] || { echo "error: $main_new not found in new zip root ($new_root)" >&2; exit 1; }
+
+if [[ "$main_old" == "$main_new" ]]; then
+    echo "main file: $main_old"
+else
+    echo "main file: $main_old (old) -> $main_new (new)"
 fi
-
-[[ -f "$old_root/$main_tex" ]] || { echo "error: $main_tex not found in old zip root ($old_root)" >&2; exit 1; }
-[[ -f "$new_root/$main_tex" ]] || { echo "error: $main_tex not found in new zip root ($new_root)" >&2; exit 1; }
-
-echo "main file: $main_tex"
 echo "flattening..."
-( cd "$old_root" && latexpand --keep-comments "$main_tex" > "$tmp/old_flat.tex" 2>/dev/null )
-( cd "$new_root" && latexpand --keep-comments "$main_tex" > "$tmp/new_flat.tex" 2>/dev/null )
+( cd "$old_root" && latexpand --keep-comments "$main_old" > "$tmp/old_flat.tex" 2>/dev/null )
+( cd "$new_root" && latexpand --keep-comments "$main_new" > "$tmp/new_flat.tex" 2>/dev/null )
 
 echo "running latexdiff (type=$diff_type)..."
 set +e
@@ -412,7 +422,7 @@ fi
 
 # Copy every non-main file from the new project into the build dir so figures,
 # .bib, .cls, .sty and the like resolve during compilation.
-( cd "$new_root" && find . -type f ! -path "./$main_tex" -print0 | \
+( cd "$new_root" && find . -type f ! -path "./$main_new" -print0 | \
     while IFS= read -r -d '' f; do
         rel="${f#./}"
         mkdir -p "$tmp/build/$(dirname "$rel")"

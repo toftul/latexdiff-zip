@@ -5,3 +5,5 @@ diff.pdf
 .DS_Store
 __pycache__/
 *.pyc
+test_for_diff_new.zip
+test_for_diff_old.zip

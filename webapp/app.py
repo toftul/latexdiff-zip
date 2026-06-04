@@ -119,7 +119,8 @@ def create_job():
     diff_type = request.form.get("diff_type", "UNDERLINE")
     if diff_type not in DIFF_TYPES:
         diff_type = "UNDERLINE"
-    main_tex = (request.form.get("main_tex") or "").strip()
+    main_tex_old = (request.form.get("main_tex_old") or "").strip()
+    main_tex_new = (request.form.get("main_tex_new") or "").strip()
     embed_figs = request.form.get("embed_figs") == "on"
 
     _cleanup_old_jobs()
@@ -135,14 +136,17 @@ def create_job():
     new.save(new_path)
 
     cmd = ["latexdiff-zip", "-o", out_path, "-t", diff_type]
-    if main_tex:
-        cmd += ["-m", main_tex]
+    if main_tex_old:
+        cmd += ["-m", main_tex_old]
+    if main_tex_new:
+        cmd += ["-M", main_tex_new]
     if not embed_figs:
         cmd += ["-F"]
     cmd += [old_path, new_path]
 
     open(os.path.join(job_dir, "status"), "w").write("RUNNING")
-    _log(f"job {job_id} started: {diff_type}, embed={embed_figs}, main={main_tex or 'auto'}")
+    _log(f"job {job_id} started: {diff_type}, embed={embed_figs}, "
+         f"main_old={main_tex_old or 'auto'}, main_new={main_tex_new or 'auto'}")
     threading.Thread(target=_run_build, args=(job_dir, cmd), daemon=True).start()
 
     return jsonify(id=job_id)

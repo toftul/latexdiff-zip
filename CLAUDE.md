@@ -20,7 +20,7 @@ changed figures. It is delivered at three layers, each wrapping the one below:
 ```sh
 # Run the script directly (needs host deps: unzip, latexdiff, latexpand, pdflatex,
 # bibtex/biber, + optional: ImageMagick, pdfunite/gs, python3)
-./latexdiff-zip.sh [-m main.tex] [-o out.pdf] [-t TYPE] [-F] [-c DIR] old.zip new.zip
+./latexdiff-zip.sh [-m old-main.tex] [-M new-main.tex] [-o out.pdf] [-t TYPE] [-F] [-c DIR] old.zip new.zip
 
 # Containerized CLI (builds image on first use; --build forces rebuild)
 ./latexdiff-zip-podman.sh old.zip new.zip
