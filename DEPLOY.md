@@ -103,17 +103,46 @@ sudo firewall-cmd --reload
 
 ---
 
+## Update after adding new features
+
+When you've pulled (or pushed) new changes — a tweak to `latexdiff-zip.sh`, `webapp/`, or
+either `Containerfile` — refresh the running deployment:
+
+```sh
+# 1. grab the new code
+cd ~/latexdiff-zip
+git pull
+
+# 2. rebuild both images (base first, web second) and restart the app
+podman build -t latexdiff-zip:latest     -f Containerfile     . \
+  && podman build -t latexdiff-zip-web:latest -f Containerfile.web . \
+  && systemctl --user restart webapp.service
+
+# 3. confirm it's back up — expect: HTTP/1.1 200 OK
+curl -sI http://127.0.0.1:8080 | head -1
+```
+
+Notes:
+
+- **Order matters:** `Containerfile.web` is `FROM latexdiff-zip:latest`, so the base image
+  must be rebuilt *before* the web image, or the web image keeps the old code.
+- **No need to touch `cloudflared`** — the tunnel points at `localhost:8080` and is unaffected
+  by an app update. Only re-run steps 3–6 of the setup if you changed the tunnel itself.
+- Old job state lives only in the container's tmp dir, so the restart starts clean. If a
+  browser tab was open, reload it.
+- Add `--network=host` to the `podman build` commands if rootless DNS can't resolve
+  `deb.debian.org` (see troubleshooting below).
+
+---
+
 ## Verify, operate, troubleshoot
 
 ```sh
 podman logs -f webapp            # app build logs / job events
 journalctl -u cloudflared -f     # tunnel logs
-
-# Update the app:
-podman build -t latexdiff-zip:latest -f Containerfile . \
-  && podman build -t latexdiff-zip-web:latest -f Containerfile.web . \
-  && systemctl --user restart webapp.service
 ```
+
+To pull and redeploy new features, see [Update after adding new features](#update-after-adding-new-features) above.
 
 - **cloudflared won't connect / times out.** Check `journalctl -u cloudflared`. If the
   QUIC/UDP 7844 pre-check fails (TCP ok), force HTTP/2: `sudo systemctl edit --full
