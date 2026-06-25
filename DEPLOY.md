@@ -26,8 +26,8 @@ rootless (your user); cloudflared is a system service (`sudo`).
 
 ```sh
 cd ~/latexdiff-zip
-podman build -t latexdiff-zip:latest     -f Containerfile     .
-podman build -t latexdiff-zip-web:latest -f Containerfile.web .
+podman build --network=host -t latexdiff-zip:latest     -f Containerfile     .
+podman build --network=host -t latexdiff-zip-web:latest -f Containerfile.web .
 ```
 
 ## 2. Run the web app (published on localhost, survives reboot)
@@ -114,8 +114,8 @@ cd ~/latexdiff-zip
 git pull
 
 # 2. rebuild both images (base first, web second) and restart the app
-podman build -t latexdiff-zip:latest     -f Containerfile     . \
-  && podman build -t latexdiff-zip-web:latest -f Containerfile.web . \
+podman build --network=host -t latexdiff-zip:latest     -f Containerfile     . \
+  && podman build --network=host -t latexdiff-zip-web:latest -f Containerfile.web . \
   && systemctl --user restart webapp.service
 
 # 3. confirm it's back up — expect: HTTP/1.1 200 OK
