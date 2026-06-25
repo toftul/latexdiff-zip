@@ -62,6 +62,12 @@ container.
 # The two projects' main files have different names
 ./latexdiff-zip.sh -m old-main.tex -M new-main.tex v1.zip v2.zip
 
+# Both versions live in ONE archive (e.g. old.tex + new.tex side by side):
+# pass the same archive twice and name the main file(s). Naming one side is
+# enough — the other is auto-detected by excluding the one you named.
+./latexdiff-zip.sh -m old.tex -M new.tex paper.zip paper.zip
+./latexdiff-zip.sh -M new.tex paper.zip paper.zip      # -m auto-detects old.tex
+
 # Different markup style
 ./latexdiff-zip.sh -t CCHANGEBAR old.zip new.zip
 
@@ -123,4 +129,8 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
 - Each project's main file is detected independently, so the two may have different
   filenames (e.g. a renamed Overleaf project). If a project has several `\documentclass`
   files, pass `-m` (old) / `-M` (new) to disambiguate.
+- When the **same archive** is given for both sides (it holds both an old and a new main
+  file), naming just one side with `-m`/`-M` is enough — auto-detection of the other side
+  drops the main you named, so it won't trip over the two `\documentclass` files. Name both,
+  or at least one; leaving both blank can't tell which version is old vs new and errors.
 - Engine is fixed to `pdflatex`; XeLaTeX/LuaLaTeX aren't supported yet.

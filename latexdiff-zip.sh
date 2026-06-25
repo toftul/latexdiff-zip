@@ -411,13 +411,27 @@ new_root="$(descend_single_root "$tmp/new")"
 # Auto-detect the main .tex in a project root: the single file whose line starts
 # with \documentclass. Echoes its basename, or exits with a helpful message when
 # there are zero or several candidates. $2 is the flag to suggest on ambiguity.
+# $3 (optional) is the other side's main basename: when detection is ambiguous
+# it is dropped from the candidates, so a single archive that holds both an old
+# and a new main file (e.g. old.tex + new.tex) can be diffed by naming just one.
 detect_main() {
-    local root="$1" flag="$2"
+    local root="$1" flag="$2" other="${3:-}"
     local found=()
     # [[:space:]] rather than \s: BSD grep (stock macOS) has no \s. -h hides
     # filenames; we only need the names grep -l prints.
     while IFS= read -r f; do found+=("$f"); done \
         < <(grep -l -E '^[[:space:]]*\\documentclass' "$root"/*.tex 2>/dev/null || true)
+    # Disambiguate against the other side's main, if we were told it.
+    if [[ ${#found[@]} -gt 1 && -n "$other" ]]; then
+        local ob kept=()
+        ob="$(basename "$other")"
+        for f in "${found[@]}"; do
+            [[ "$(basename "$f")" == "$ob" ]] && continue
+            kept+=("$f")
+        done
+        # Reassign safely under `set -u` even if kept ended up empty (bash 3.2).
+        found=(${kept[@]+"${kept[@]}"})
+    fi
     if [[ ${#found[@]} -eq 1 ]]; then
         basename "${found[0]}"
     elif [[ ${#found[@]} -gt 1 ]]; then
@@ -434,8 +448,19 @@ detect_main() {
 # Resolve each project's main file independently (-m for old, -M for new); a
 # side left unset is auto-detected. This lets the two zips use different
 # main-file names, e.g. an Overleaf project that was renamed between exports.
-[[ -n "$main_old" ]] || main_old="$(detect_main "$old_root" -m)"
-[[ -n "$main_new" ]] || main_new="$(detect_main "$new_root" -M)"
+#
+# Special case: the two sides are the *same* archive (identical path, or
+# byte-identical uploads -- e.g. the web UI saving one upload as both old.zip
+# and new.zip). Then a project holding both an old and a new main can be diffed
+# by naming just one side; auto-detection of the blank side excludes the named
+# main so it doesn't trip over "multiple \documentclass files".
+excl_old=""; excl_new=""
+if [[ "$old_arc_abs" == "$new_arc_abs" ]] || cmp -s "$old_arc_abs" "$new_arc_abs"; then
+    excl_old="$main_new"   # detecting the old main: drop the (named) new main
+    excl_new="$main_old"   # detecting the new main: drop the (named) old main
+fi
+[[ -n "$main_old" ]] || main_old="$(detect_main "$old_root" -m "$excl_old")"
+[[ -n "$main_new" ]] || main_new="$(detect_main "$new_root" -M "$excl_new")"
 
 [[ -f "$old_root/$main_old" ]] || { echo "error: $main_old not found in old project root ($old_root)" >&2; exit 1; }
 [[ -f "$new_root/$main_new" ]] || { echo "error: $main_new not found in new project root ($new_root)" >&2; exit 1; }
