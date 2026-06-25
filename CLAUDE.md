@@ -4,9 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A tool that produces a `latexdiff` track-changes PDF between two zipped LaTeX projects
-(typically Overleaf history exports), including side-by-side OLD/NEW comparisons of any
-changed figures. It is delivered at three layers, each wrapping the one below:
+A tool that produces a `latexdiff` track-changes PDF between two LaTeX project archives
+(typically Overleaf history `.zip` exports or arXiv `.tar.gz` source downloads), including
+side-by-side OLD/NEW comparisons of any changed figures. Each side may be a `.zip` or a tar
+archive (`.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`, `.tar.xz`/`.txz`), dispatched on the
+filename extension, and the two sides may differ. It is delivered at three layers, each
+wrapping the one below:
 
 1. **`latexdiff-zip.sh`** — the engine. A single self-contained bash script; everything
    else just packages or invokes it.
@@ -18,9 +21,9 @@ changed figures. It is delivered at three layers, each wrapping the one below:
 ## Commands
 
 ```sh
-# Run the script directly (needs host deps: unzip, latexdiff, latexpand, pdflatex,
-# bibtex/biber, + optional: ImageMagick, pdfunite/gs, python3)
-./latexdiff-zip.sh [-m old-main.tex] [-M new-main.tex] [-o out.pdf] [-t TYPE] [-F] [-c DIR] old.zip new.zip
+# Run the script directly (needs host deps: unzip and/or tar, latexdiff, latexpand,
+# pdflatex, bibtex/biber, + optional: ImageMagick, pdfunite/gs, python3)
+./latexdiff-zip.sh [-m old-main.tex] [-M new-main.tex] [-o out.pdf] [-t TYPE] [-F] [-c DIR] OLD NEW
 
 # Containerized CLI (builds image on first use; --build forces rebuild)
 ./latexdiff-zip-podman.sh old.zip new.zip
@@ -46,8 +49,10 @@ the bash engine itself can still be exercised directly on the host.
 
 ## Architecture & non-obvious design decisions
 
-**`latexdiff-zip.sh` pipeline:** unzip both → descend into a single top-level dir if present
-→ auto-detect the main `.tex` (the one with `\documentclass`) → `latexpand` each into one
+**`latexdiff-zip.sh` pipeline:** extract both (`extract_archive` dispatches on extension —
+`unzip` for `.zip`, `tar -xf` for tar archives, which auto-detects gzip/bzip2/xz) → descend
+into a single top-level dir if present → auto-detect the main `.tex` (the one with
+`\documentclass`) → `latexpand` each into one
 flat file → `latexdiff` the two → copy the **new** project's assets into a build dir →
 compile → compare figures → embed figure collages into the PDF.
 

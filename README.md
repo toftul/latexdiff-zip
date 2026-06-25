@@ -1,12 +1,12 @@
 # latexdiff-zip
 
-Turn two zipped LaTeX projects (e.g. Overleaf history exports) into one
-track-changes PDF — text ***and*** figures.
+Turn two LaTeX project archives — Overleaf `.zip` history exports or arXiv
+`.tar.gz` source — into one track-changes PDF — text ***and*** figures.
 
 I host a ready-to-use copy: </br>
 **<https://latexdiff.toftul.net/>**
 
-Drag in your two `.zip` files, get a diff PDF back. 
+Drag in your two archives (`.zip` or `.tar.gz`), get a diff PDF back. 
 
 ## Run it yourself
 

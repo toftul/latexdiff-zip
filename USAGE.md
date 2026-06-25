@@ -3,19 +3,24 @@
 [← back to README](README.md)
 
 ```sh
-./latexdiff-zip.sh [-m old-main.tex] [-M new-main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] old.zip new.zip
+./latexdiff-zip.sh [-m old-main.tex] [-M new-main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] OLD NEW
 ```
 
-It produces a [`latexdiff`](https://ctan.org/pkg/latexdiff) PDF between two zipped LaTeX
-projects — for example, two snapshots from an Overleaf project's history. Overleaf's history
-is great for browsing, but it can't hand you a single PDF showing every change between two
-arbitrary versions; this does.
+It produces a [`latexdiff`](https://ctan.org/pkg/latexdiff) PDF between two LaTeX project
+archives — for example, two snapshots from an Overleaf project's history, or two arXiv source
+downloads. Overleaf's history is great for browsing, but it can't hand you a single PDF showing
+every change between two arbitrary versions; this does.
+
+`OLD` and `NEW` may each be a `.zip` or a tar archive
+(`.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`, `.tar.xz`/`.txz`) — so you can diff an Overleaf
+`.zip` export against an arXiv `.tar.gz`, or any combination. The format is picked from the
+filename extension.
 
 ## Requirements
 
 These must be on your `PATH`:
 
-- `unzip`
+- `unzip` (for `.zip` archives) and/or `tar` (for tar archives)
 - `latexdiff`
 - `latexpand`
 - `pdflatex`
@@ -33,7 +38,7 @@ container.
 | --- | --- |
 | `-m main.tex` | Main `.tex` file of the **old** project, relative to its root. Auto-detected if omitted. |
 | `-M main.tex` | Main `.tex` file of the **new** project. Auto-detected if omitted; the two projects may use different names. |
-| `-o output.pdf` | Output PDF path. Defaults to `diff.pdf` next to `new.zip`. |
+| `-o output.pdf` | Output PDF path. Defaults to `diff.pdf` next to the `NEW` archive. |
 | `-t TYPE` | `latexdiff --type` value (`UNDERLINE`, `CFONT`, `CCHANGEBAR`, …). Default: `UNDERLINE`. |
 | `-F` | Do **not** append figure-diff collages to the PDF (appended by default). |
 | `-c DIR` | Also save the figure-diff collage PNGs into `DIR`. |
@@ -44,6 +49,12 @@ container.
 ```sh
 # Diff two Overleaf exports, writing diff.pdf beside the new one
 ./latexdiff-zip.sh old.zip new.zip
+
+# Diff two arXiv source tarballs
+./latexdiff-zip.sh v1.tar.gz v2.tar.gz
+
+# Mix formats: an Overleaf .zip against an arXiv .tar.gz
+./latexdiff-zip.sh overleaf.zip arxiv.tar.gz
 
 # Pick the main file and output path explicitly
 ./latexdiff-zip.sh -m paper.tex -o ~/Desktop/changes.pdf v1.zip v2.zip
@@ -91,7 +102,8 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
 
 ## How it works
 
-1. Unzips both archives; if an archive has a single top-level folder, descends into it.
+1. Extracts both archives (`.zip` via `unzip`, tar archives via `tar`); if an archive has a
+   single top-level folder, descends into it.
 2. Detects each project's main file independently (the `.tex` with `\documentclass`;
    override with `-m` for the old project, `-M` for the new).
 3. Flattens each project into one file with `latexpand --keep-comments`.

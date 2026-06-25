@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# latexdiff-zip: produce a latexdiff PDF between two LaTeX project zips
-# (e.g. two snapshots downloaded from Overleaf history).
+# latexdiff-zip: produce a latexdiff PDF between two LaTeX project archives
+# (e.g. two snapshots downloaded from Overleaf history, or arXiv source tarballs).
+# Both .zip and tar archives (.tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz)
+# are accepted, and the two sides may use different formats.
 #
-# Usage: latexdiff-zip [-m main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] old.zip new.zip
+# Usage: latexdiff-zip [-m main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] old.{zip,tar.gz} new.{zip,tar.gz}
 #
-# Artifacts left behind: the diff PDF (default: alongside new.zip as diff.pdf).
-# When ImageMagick is available, every figure that changed between the two zips
+# Artifacts left behind: the diff PDF (default: alongside the new archive as diff.pdf).
+# When ImageMagick is available, every figure that changed between the two archives
 # gets a side-by-side OLD/NEW collage. By default the collages are appended as
 # extra pages to the diff PDF; pass -F to disable that, and/or -c DIR to also
 # save the collage PNGs into a folder. All intermediate files are produced in a
@@ -295,13 +297,17 @@ merge_pdfs() {
 
 usage() {
     cat >&2 <<EOF
-Usage: $(basename "$0") [-m main.tex] [-M main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] old.zip new.zip
+Usage: $(basename "$0") [-m main.tex] [-M main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] OLD NEW
 
+  OLD, NEW        The two project archives to compare. Each may be a .zip or a
+                 tar archive (.tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz);
+                 e.g. an Overleaf history export (.zip) or an arXiv source
+                 download (.tar.gz). The two sides may use different formats.
   -m main.tex    Main .tex file in the OLD project (relative to its root).
                  Auto-detected (the file containing \\documentclass) if omitted.
   -M main.tex    Main .tex file in the NEW project. Auto-detected if omitted.
                  The two projects may use different main-file names.
-  -o output.pdf  Output PDF path (default: <dir of new.zip>/diff.pdf).
+  -o output.pdf  Output PDF path (default: <dir of NEW>/diff.pdf).
   -t TYPE        latexdiff --type value (default: UNDERLINE).
   -F             Do not append figure-diff collages to the PDF (on by default).
   -c DIR         Also save the figure-diff collage PNGs into DIR.
@@ -324,22 +330,57 @@ done
 shift $((OPTIND - 1))
 
 [[ $# -eq 2 ]] || usage
-old_zip="$1"
-new_zip="$2"
+old_arc="$1"
+new_arc="$2"
 
-for f in "$old_zip" "$new_zip"; do
+for f in "$old_arc" "$new_arc"; do
     [[ -f "$f" ]] || { echo "error: not a file: $f" >&2; exit 1; }
 done
 
-for cmd in unzip latexdiff latexpand pdflatex; do
+# Which extractor an archive needs, by extension. Echoes the required command
+# name (unzip/tar), or nothing for an unrecognised type. arXiv source downloads
+# are tarballs; Overleaf history exports are zips.
+archive_tool() {
+    case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        *.zip)                                              echo unzip ;;
+        *.tar|*.tar.gz|*.tgz|*.tar.bz2|*.tbz2|*.tar.xz|*.txz) echo tar ;;
+        *)                                                  echo "" ;;
+    esac
+}
+
+# Extract an archive into a destination directory, dispatching on its type.
+extract_archive() {
+    local arc="$1" dest="$2"
+    case "$(archive_tool "$arc")" in
+        unzip) unzip -q "$arc" -d "$dest" ;;
+        # GNU tar and BSD tar (stock macOS) both auto-detect the compression
+        # (gzip/bzip2/xz) on extraction, so a bare -xf handles every tar variant.
+        tar)   tar -xf "$arc" -C "$dest" ;;
+        *)     echo "error: unsupported archive type: $arc" >&2; exit 1 ;;
+    esac
+}
+
+for cmd in latexdiff latexpand pdflatex; do
     command -v "$cmd" >/dev/null || { echo "error: missing dependency: $cmd" >&2; exit 1; }
 done
 
+# Validate each archive's type and that its extractor is installed (only the
+# tools the given archives actually need are required).
+for f in "$old_arc" "$new_arc"; do
+    tool="$(archive_tool "$f")"
+    if [[ -z "$tool" ]]; then
+        echo "error: unsupported archive type: $f" >&2
+        echo "       supported: .zip, .tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz" >&2
+        exit 1
+    fi
+    command -v "$tool" >/dev/null || { echo "error: missing dependency: $tool (needed for $f)" >&2; exit 1; }
+done
+
 # Resolve paths before we cd anywhere.
-old_zip_abs="$(cd "$(dirname "$old_zip")" && pwd)/$(basename "$old_zip")"
-new_zip_abs="$(cd "$(dirname "$new_zip")" && pwd)/$(basename "$new_zip")"
+old_arc_abs="$(cd "$(dirname "$old_arc")" && pwd)/$(basename "$old_arc")"
+new_arc_abs="$(cd "$(dirname "$new_arc")" && pwd)/$(basename "$new_arc")"
 if [[ -z "$out_pdf" ]]; then
-    out_pdf="$(dirname "$new_zip_abs")/diff.pdf"
+    out_pdf="$(dirname "$new_arc_abs")/diff.pdf"
 fi
 mkdir -p "$(dirname "$out_pdf")"
 out_pdf="$(cd "$(dirname "$out_pdf")" && pwd)/$(basename "$out_pdf")"
@@ -348,10 +389,10 @@ tmp="$(mktemp -d -t latexdiff-zip.XXXXXX)"
 trap 'rm -rf "$tmp"' EXIT
 
 mkdir -p "$tmp/old" "$tmp/new" "$tmp/build"
-unzip -q "$old_zip_abs" -d "$tmp/old"
-unzip -q "$new_zip_abs" -d "$tmp/new"
+extract_archive "$old_arc_abs" "$tmp/old"
+extract_archive "$new_arc_abs" "$tmp/new"
 
-# If the zip contained a single top-level directory, descend into it.
+# If the archive contained a single top-level directory, descend into it.
 descend_single_root() {
     local d="$1"
     local entries=()
@@ -396,8 +437,8 @@ detect_main() {
 [[ -n "$main_old" ]] || main_old="$(detect_main "$old_root" -m)"
 [[ -n "$main_new" ]] || main_new="$(detect_main "$new_root" -M)"
 
-[[ -f "$old_root/$main_old" ]] || { echo "error: $main_old not found in old zip root ($old_root)" >&2; exit 1; }
-[[ -f "$new_root/$main_new" ]] || { echo "error: $main_new not found in new zip root ($new_root)" >&2; exit 1; }
+[[ -f "$old_root/$main_old" ]] || { echo "error: $main_old not found in old project root ($old_root)" >&2; exit 1; }
+[[ -f "$new_root/$main_new" ]] || { echo "error: $main_new not found in new project root ($new_root)" >&2; exit 1; }
 
 if [[ "$main_old" == "$main_new" ]]; then
     echo "main file: $main_old"

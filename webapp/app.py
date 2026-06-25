@@ -22,6 +22,20 @@ app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB per request
 # latexdiff --type values worth offering in the UI.
 DIFF_TYPES = ["UNDERLINE", "CFONT", "CCHANGEBAR", "CULINECHBAR", "BOLD"]
 
+# Archive extensions the CLI can extract. The CLI dispatches on the file
+# extension, so an upload must be saved under a name that ends in one of these
+# (longest match first, so .tar.gz wins over .gz-style suffixes).
+ARCHIVE_EXTS = (".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".tbz2", ".txz", ".tar", ".zip")
+
+
+def _archive_ext(filename):
+    """Return the recognised archive suffix of an upload, or '' if unsupported."""
+    name = (filename or "").lower()
+    for ext in ARCHIVE_EXTS:
+        if name.endswith(ext):
+            return ext
+    return ""
+
 # How long a single build is allowed to run before we give up.
 BUILD_TIMEOUT = int(os.environ.get("LDZ_TIMEOUT", "600"))
 
@@ -114,7 +128,17 @@ def create_job():
     old = request.files.get("old_zip")
     new = request.files.get("new_zip")
     if not old or not new or not old.filename or not new.filename:
-        return jsonify(error="Please choose both the OLD and the NEW .zip files."), 400
+        return jsonify(error="Please choose both the OLD and the NEW archive."), 400
+
+    # The CLI extracts by extension, so reject anything we can't unpack and keep
+    # the real suffix when saving (.tar.gz vs .zip leads to different handling).
+    old_ext = _archive_ext(old.filename)
+    new_ext = _archive_ext(new.filename)
+    if not old_ext or not new_ext:
+        return jsonify(
+            error="Each upload must be a .zip or a tar archive "
+                  "(.tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz)."
+        ), 400
 
     diff_type = request.form.get("diff_type", "UNDERLINE")
     if diff_type not in DIFF_TYPES:
@@ -129,8 +153,8 @@ def create_job():
     job_dir = os.path.join(JOBS_ROOT, job_id)
     os.makedirs(job_dir)
 
-    old_path = os.path.join(job_dir, "old.zip")
-    new_path = os.path.join(job_dir, "new.zip")
+    old_path = os.path.join(job_dir, "old" + old_ext)
+    new_path = os.path.join(job_dir, "new" + new_ext)
     out_path = os.path.join(job_dir, "diff.pdf")
     old.save(old_path)
     new.save(new_path)

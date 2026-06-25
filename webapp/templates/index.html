@@ -180,20 +180,21 @@
     <button type="button" id="theme-toggle" class="theme-toggle"
             aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
     <h1><code>latexdiff-zip</code></h1>
-    <p class="lead">Drop two LaTeX project zips (e.g. Overleaf history exports) and get a
-      track-changes PDF!<br>We support figure comparisons 😎</p>
+    <p class="lead">Drop two LaTeX project archives — Overleaf <code>.zip</code> exports or
+      arXiv <code>.tar.gz</code> source — and get a track-changes PDF!<br>We support figure
+      comparisons 😎</p>
 
     <form id="form">
       <div class="drops">
         <label class="drop old" id="drop-old">
           <div class="tag">OLD VERSION</div>
-          <div class="hint" data-default="click or drop a .zip">click or drop a .zip</div>
-          <input type="file" name="old_zip" accept=".zip">
+          <div class="hint" data-default="click or drop a .zip / .tar.gz">click or drop a .zip / .tar.gz</div>
+          <input type="file" name="old_zip" accept=".zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.txz">
         </label>
         <label class="drop new" id="drop-new">
           <div class="tag">NEW VERSION</div>
-          <div class="hint" data-default="click or drop a .zip">click or drop a .zip</div>
-          <input type="file" name="new_zip" accept=".zip">
+          <div class="hint" data-default="click or drop a .zip / .tar.gz">click or drop a .zip / .tar.gz</div>
+          <input type="file" name="new_zip" accept=".zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.txz">
         </label>
       </div>
 
@@ -379,9 +380,9 @@
     if (!oldFile || !newFile) {
       statusEl.className = 'err';
       statusEl.textContent = !oldFile && !newFile
-        ? 'Please choose both the OLD and the NEW .zip files.'
-        : (!oldFile ? 'Please choose the OLD .zip file.'
-                    : 'Please choose the NEW .zip file.');
+        ? 'Please choose both the OLD and the NEW archive.'
+        : (!oldFile ? 'Please choose the OLD archive.'
+                    : 'Please choose the NEW archive.');
       return;
     }
 
