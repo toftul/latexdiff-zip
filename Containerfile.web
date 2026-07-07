@@ -18,6 +18,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY webapp/ /app/
+# The landing page shows this screenshot; it lives in examples/ (not
+# webapp/static/) so the README can reference the same single copy.
+COPY examples/diff_example.png /app/static/
 WORKDIR /app
 ENV HOME=/tmp
 

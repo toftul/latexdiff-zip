@@ -1,6 +1,6 @@
 
-new.zip
-old.zip
+/new.zip
+/old.zip
 diff.pdf
 .DS_Store
 __pycache__/

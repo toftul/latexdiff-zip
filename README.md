@@ -8,6 +8,10 @@ I host a ready-to-use copy: </br>
 
 Drag in your two archives (`.zip` or `.tar.gz`), get a diff PDF back. 
 
+![Example diff PDF: old text struck out in red, new text underlined in blue, and an OLD vs NEW side-by-side figure comparison](examples/diff_example.png)
+
+*Old text struck out in red, new text underlined in blue — and changed figures compared side by side, even if the image file was renamed.*
+
 ## Run it yourself
 
 **Web UI** (drag-and-drop) — clone the repo, then, with [Podman](https://podman.io/) installed:
