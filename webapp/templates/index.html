@@ -354,7 +354,15 @@
     var secs = Math.round((Date.now() - started) / 1000);
     var label = stageIdx < 0 ? 'Starting build' : STAGES[stageIdx].label;
     var step = stageIdx < 0 ? '' : ' · step ' + (stageIdx + 1) + ' of ' + STAGES.length;
-    statusEl.innerHTML = '<span class="spinner"></span>' + label + step + ' — ' + secs + 's';
+    // Keep the spinner element alive across ticks: replacing innerHTML each
+    // second would recreate it and restart its CSS animation from 0°,
+    // making the rotation visibly jump. Only the text next to it changes.
+    var text = statusEl.querySelector('.status-text');
+    if (!text) {
+      statusEl.innerHTML = '<span class="spinner"></span><span class="status-text"></span>';
+      text = statusEl.querySelector('.status-text');
+    }
+    text.textContent = label + step + ' — ' + secs + 's';
   }
 
   function appendLog(line) {
