@@ -28,7 +28,7 @@ a diff PDF back.
 curl -O https://raw.githubusercontent.com/toftul/latexdiff-zip/main/latexdiff-zip.sh
 chmod +x latexdiff-zip.sh
 ./latexdiff-zip.sh old.zip new.zip
-./latexdiff-zip.sh 1706.03762v1 1706.03762v2   # straight from arXiv, no downloads
+./latexdiff-zip.sh 1706.03762v1 1706.03762v2   # straight from arXiv
 ```
 
 **CLI (container)** — run it inside the container instead:
