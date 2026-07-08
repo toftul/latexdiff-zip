@@ -34,13 +34,22 @@ which errors). It is delivered at three layers, each wrapping the one below:
 ./latexdiff-zip-web.sh [PORT]
 ./latexdiff-zip-web.sh --build      # force rebuild after editing script/app
 
-# Sanity checks used in place of a test suite (there is none):
+# Syntax sanity checks
 bash -n latexdiff-zip.sh            # shell syntax
 python3 -m py_compile webapp/app.py # web app syntax
+
+# Behaviour oracle: runs the engine over tests/cases/ fixtures and asserts on
+# the observable contract (exit code, stage/warning log lines, PDF page count,
+# pdftotext probes). Green against the bash engine; the Python rewrite is done
+# when it is green with LDZ_SCRIPT pointed at the .py.
+python3 tests/test_parity.py            # full offline suite (real pdflatex builds)
+python3 tests/test_parity.py -k fast    # fast CLI-contract cases only, no LaTeX
+LDZ_NETWORK=1 python3 tests/test_parity.py   # + real arXiv-fetch cases
 ```
 
-`old.zip`/`new.zip` in the repo root are real sample fixtures — use them to smoke-test
-changes end-to-end.
+`test_for_diff_old.zip`/`test_for_diff_new.zip` in the repo root are real sample fixtures —
+use them to smoke-test changes end-to-end. See `tests/README.md` for the oracle's cases and
+knobs.
 
 ### Testing constraint
 
