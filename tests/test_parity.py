@@ -36,7 +36,8 @@ CASES_DIR = os.path.join(ROOT, "tests", "cases")
 # Engine under test. Default to the bash script; Phase 2 sets LDZ_SCRIPT to the
 # Python port. A .py target is run through the current interpreter so it needs
 # no execute bit.
-SCRIPT = os.environ.get("LDZ_SCRIPT", os.path.join(ROOT, "latexdiff-zip.sh"))
+# Absolutised so it resolves regardless of a case's temp working directory.
+SCRIPT = os.path.abspath(os.environ.get("LDZ_SCRIPT", os.path.join(ROOT, "latexdiff-zip.sh")))
 RUN_NETWORK = os.environ.get("LDZ_NETWORK") == "1"
 CASE_TIMEOUT = int(os.environ.get("LDZ_CASE_TIMEOUT", "300"))
 
