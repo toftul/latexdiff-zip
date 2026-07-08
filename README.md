@@ -2,11 +2,13 @@
 
 Turn two LaTeX project archives — Overleaf `.zip` history exports or arXiv
 `.tar.gz` source — into one track-changes PDF — text ***and*** figures.
+Or skip the downloading and just give it two arXiv IDs.
 
 I host a ready-to-use copy: </br>
 **<https://latexdiff.toftul.net/>**
 
-Drag in your two archives (`.zip` or `.tar.gz`), get a diff PDF back. 
+Drag in your two archives (`.zip` or `.tar.gz`) — or paste arXiv IDs — and get
+a diff PDF back. 
 
 ![Example diff PDF: old text struck out in red, new text underlined in blue, and an OLD vs NEW side-by-side figure comparison](examples/diff_example.png)
 
@@ -26,6 +28,7 @@ Drag in your two archives (`.zip` or `.tar.gz`), get a diff PDF back.
 curl -O https://raw.githubusercontent.com/toftul/latexdiff-zip/main/latexdiff-zip.sh
 chmod +x latexdiff-zip.sh
 ./latexdiff-zip.sh old.zip new.zip
+./latexdiff-zip.sh 1706.03762v1 1706.03762v2   # straight from arXiv, no downloads
 ```
 
 **CLI (container)** — run it inside the container instead:

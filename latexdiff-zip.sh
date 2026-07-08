@@ -2,9 +2,12 @@
 # latexdiff-zip: produce a latexdiff PDF between two LaTeX project archives
 # (e.g. two snapshots downloaded from Overleaf history, or arXiv source tarballs).
 # Both .zip and tar archives (.tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz)
-# are accepted, and the two sides may use different formats.
+# are accepted, and the two sides may use different formats. Either side may
+# also be an arXiv paper given as an id or URL (2401.12345v1, arXiv:hep-th/9901001,
+# https://arxiv.org/abs/...); its source is then fetched from arxiv.org
+# automatically (needs curl or wget).
 #
-# Usage: latexdiff-zip [-m main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] old.{zip,tar.gz} new.{zip,tar.gz}
+# Usage: latexdiff-zip [-m main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] OLD NEW
 #
 # Artifacts left behind: the diff PDF (default: alongside the new archive as diff.pdf).
 # When ImageMagick is available, every figure that changed between the two archives
@@ -299,10 +302,13 @@ usage() {
     cat >&2 <<EOF
 Usage: $(basename "$0") [-m main.tex] [-M main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] OLD NEW
 
-  OLD, NEW        The two project archives to compare. Each may be a .zip or a
-                 tar archive (.tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz);
-                 e.g. an Overleaf history export (.zip) or an arXiv source
-                 download (.tar.gz). The two sides may use different formats.
+  OLD, NEW       The two versions to compare. Each is either a local project
+                 archive -- .zip or tar (.tar, .tar.gz/.tgz, .tar.bz2/.tbz2,
+                 .tar.xz/.txz), e.g. an Overleaf history export or an arXiv
+                 source download -- or an arXiv paper to fetch, given as an id
+                 (2401.12345v1, hep-th/9901001), an arXiv:<id> reference, or an
+                 arxiv.org URL (abs/pdf/e-print). Fetching needs curl or wget.
+                 The two sides may be of different kinds.
   -m main.tex    Main .tex file in the OLD project (relative to its root).
                  Auto-detected (the file containing \\documentclass) if omitted.
   -M main.tex    Main .tex file in the NEW project. Auto-detected if omitted.
@@ -333,9 +339,45 @@ shift $((OPTIND - 1))
 old_arc="$1"
 new_arc="$2"
 
-for f in "$old_arc" "$new_arc"; do
-    [[ -f "$f" ]] || { echo "error: not a file: $f" >&2; exit 1; }
-done
+# Echo the bare arXiv id (e.g. 2401.12345v2 or hep-th/9901001) hidden in an
+# argument that may be a raw id, an arXiv:<id> reference, or an arxiv.org URL
+# (abs/pdf/e-print/src). Returns 1 when it doesn't look like an arXiv id.
+normalize_arxiv() {
+    local s="$1"
+    s="${s%%\?*}"                              # drop a pasted URL's ?query part
+    s="${s#http://}"; s="${s#https://}"
+    s="${s#www.}"; s="${s#export.}"
+    case "$s" in
+        arxiv.org/*)
+            s="${s#arxiv.org/}"
+            s="${s#*/}"        # drop the abs/pdf/e-print/src path component
+            ;;
+    esac
+    case "$s" in
+        [aA][rR][xX][iI][vV]:*) s="${s#*:}" ;;
+    esac
+    s="${s%.pdf}"
+    # New-style ids (YYMM.NNNNN) or old-style ones (archive.SC/YYMMNNN), each
+    # with an optional vN suffix. grep -E only: BSD grep (macOS) has no \d.
+    if printf '%s\n' "$s" \
+        | grep -Eq '^([0-9]{4}\.[0-9]{4,5}|[a-z-]+(\.[A-Z]{2})?/[0-9]{7})(v[0-9]+)?$'; then
+        printf '%s\n' "$s"
+    else
+        return 1
+    fi
+}
+
+# Each side is either a local archive file or an arXiv paper to fetch; a local
+# file wins, so a file that happens to be named like an id still works.
+old_id=""; new_id=""
+if [[ ! -f "$old_arc" ]]; then
+    old_id="$(normalize_arxiv "$old_arc")" \
+        || { echo "error: not a file or arXiv id: $old_arc" >&2; exit 1; }
+fi
+if [[ ! -f "$new_arc" ]]; then
+    new_id="$(normalize_arxiv "$new_arc")" \
+        || { echo "error: not a file or arXiv id: $new_arc" >&2; exit 1; }
+fi
 
 # Which extractor an archive needs, by extension. Echoes the required command
 # name (unzip/tar), or nothing for an unrecognised type. arXiv source downloads
@@ -360,13 +402,62 @@ extract_archive() {
     esac
 }
 
+# Download a URL to a file with curl or wget, whichever is installed.
+http_get() {
+    local url="$1" out="$2"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -A "latexdiff-zip (+https://github.com/toftul/latexdiff-zip)" \
+            -o "$out" "$url"
+    else
+        wget -q -U "latexdiff-zip (+https://github.com/toftul/latexdiff-zip)" \
+            -O "$out" "$url"
+    fi
+}
+
+# Fetch an arXiv e-print and unpack it into a destination directory. The
+# e-print endpoint serves a (gzipped) tar for multi-file submissions, a bare
+# gzipped .tex for single-file ones, or a PDF when there is no TeX source.
+fetch_arxiv() {
+    local id="$1" dest="$2"
+    local dl="$tmp/$(basename "$dest").eprint"
+    echo "fetching arXiv:$id source..."
+    if ! http_get "https://arxiv.org/e-print/$id" "$dl"; then
+        echo "error: could not download https://arxiv.org/e-print/$id" >&2
+        echo "       check the id (and version), and your network connection" >&2
+        exit 1
+    fi
+    local magic
+    magic="$(od -An -tx1 -N4 "$dl" | tr -d ' \n')"
+    if [[ "$magic" == 25504446* ]]; then          # "%PDF": pdf-only submission
+        echo "error: arXiv:$id has no LaTeX source (pdf-only submission)" >&2
+        exit 1
+    # A real tar lists at least one entry. The non-empty check matters: GNU tar
+    # accepts a gzipped file whose decompressed content is shorter than one
+    # 512-byte block as a valid *empty* archive, which would swallow a tiny
+    # single-file submission. (tar auto-detects the compression.)
+    elif [[ -n "$(tar -tf "$dl" 2>/dev/null)" ]]; then
+        tar -xf "$dl" -C "$dest"
+    elif [[ "$magic" == 1f8b* ]]; then            # gzip but not a tar: single .tex
+        gunzip -c "$dl" > "$dest/main.tex"
+    else
+        echo "error: unrecognised e-print format for arXiv:$id" >&2
+        exit 1
+    fi
+}
+
 for cmd in latexdiff latexpand pdflatex; do
     command -v "$cmd" >/dev/null || { echo "error: missing dependency: $cmd" >&2; exit 1; }
 done
+if [[ -n "$old_id" || -n "$new_id" ]]; then
+    command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 \
+        || { echo "error: fetching from arXiv needs curl or wget" >&2; exit 1; }
+fi
 
 # Validate each archive's type and that its extractor is installed (only the
-# tools the given archives actually need are required).
+# tools the given archives actually need are required). arXiv sides are
+# skipped: they aren't local files.
 for f in "$old_arc" "$new_arc"; do
+    [[ -f "$f" ]] || continue
     tool="$(archive_tool "$f")"
     if [[ -z "$tool" ]]; then
         echo "error: unsupported archive type: $f" >&2
@@ -376,11 +467,16 @@ for f in "$old_arc" "$new_arc"; do
     command -v "$tool" >/dev/null || { echo "error: missing dependency: $tool (needed for $f)" >&2; exit 1; }
 done
 
-# Resolve paths before we cd anywhere.
-old_arc_abs="$(cd "$(dirname "$old_arc")" && pwd)/$(basename "$old_arc")"
-new_arc_abs="$(cd "$(dirname "$new_arc")" && pwd)/$(basename "$new_arc")"
+# Resolve paths before we cd anywhere (arXiv sides have no local path).
+old_arc_abs=""; new_arc_abs=""
+[[ -n "$old_id" ]] || old_arc_abs="$(cd "$(dirname "$old_arc")" && pwd)/$(basename "$old_arc")"
+[[ -n "$new_id" ]] || new_arc_abs="$(cd "$(dirname "$new_arc")" && pwd)/$(basename "$new_arc")"
 if [[ -z "$out_pdf" ]]; then
-    out_pdf="$(dirname "$new_arc_abs")/diff.pdf"
+    if [[ -n "$new_id" ]]; then
+        out_pdf="$PWD/diff.pdf"    # NEW was fetched: no archive to sit beside
+    else
+        out_pdf="$(dirname "$new_arc_abs")/diff.pdf"
+    fi
 fi
 mkdir -p "$(dirname "$out_pdf")"
 out_pdf="$(cd "$(dirname "$out_pdf")" && pwd)/$(basename "$out_pdf")"
@@ -389,8 +485,8 @@ tmp="$(mktemp -d -t latexdiff-zip.XXXXXX)"
 trap 'rm -rf "$tmp"' EXIT
 
 mkdir -p "$tmp/old" "$tmp/new" "$tmp/build"
-extract_archive "$old_arc_abs" "$tmp/old"
-extract_archive "$new_arc_abs" "$tmp/new"
+if [[ -n "$old_id" ]]; then fetch_arxiv "$old_id" "$tmp/old"; else extract_archive "$old_arc_abs" "$tmp/old"; fi
+if [[ -n "$new_id" ]]; then fetch_arxiv "$new_id" "$tmp/new"; else extract_archive "$new_arc_abs" "$tmp/new"; fi
 
 # If the archive contained a single top-level directory, descend into it.
 descend_single_root() {
@@ -455,7 +551,13 @@ detect_main() {
 # by naming just one side; auto-detection of the blank side excludes the named
 # main so it doesn't trip over "multiple \documentclass files".
 excl_old=""; excl_new=""
-if [[ "$old_arc_abs" == "$new_arc_abs" ]] || cmp -s "$old_arc_abs" "$new_arc_abs"; then
+same_input=0
+if [[ -n "$old_id" || -n "$new_id" ]]; then
+    [[ "$old_id" == "$new_id" ]] && same_input=1
+elif [[ "$old_arc_abs" == "$new_arc_abs" ]] || cmp -s "$old_arc_abs" "$new_arc_abs"; then
+    same_input=1
+fi
+if [[ $same_input -eq 1 ]]; then
     excl_old="$main_new"   # detecting the old main: drop the (named) new main
     excl_new="$main_old"   # detecting the new main: drop the (named) old main
 fi

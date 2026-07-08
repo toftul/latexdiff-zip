@@ -74,6 +74,18 @@
   .drop.new .tag { color: var(--new); }
   .drop .hint { color: var(--muted); font-size: .85rem; margin-top: .35rem; word-break: break-all; }
   .drop input[type=file] { display: none; }
+  /* Per-side "…or paste an arXiv ID" fields, aligned under the drop zones. */
+  .arxiv-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: .6rem; }
+  @media (max-width: 520px) { .arxiv-row { grid-template-columns: 1fr; } }
+  .arxiv-row input {
+    padding: .5rem .6rem; border: 1px dashed var(--border); border-radius: 8px;
+    font: inherit; font-size: .85rem; background: transparent; color: var(--ink);
+    text-align: center; transition: border-color .15s, background .15s;
+  }
+  .arxiv-row input:focus { outline: none; border-color: var(--accent); }
+  .arxiv-row input.ready {
+    border-style: solid; border-color: var(--new); background: rgba(0,160,80,.07);
+  }
   details { margin: 1.25rem 0 0; border-top: 1px solid var(--border); padding-top: 1rem; }
   summary { cursor: pointer; color: var(--accent); font-size: .92rem; }
   .field { margin-top: .9rem; display: flex; flex-direction: column; gap: .3rem; }
@@ -190,8 +202,8 @@
             aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
     <h1><code>latexdiff-zip</code></h1>
     <p class="lead">Drop two LaTeX project archives — Overleaf <code>.zip</code> exports or
-      arXiv <code>.tar.gz</code> source — and get a track-changes PDF! We support figure
-      comparisons 😎</p>
+      arXiv <code>.tar.gz</code> source — or just paste arXiv IDs, and get a track-changes
+      PDF! We support figure comparisons 😎</p>
 
     <form id="form">
       <div class="drops">
@@ -205,6 +217,13 @@
           <div class="hint" data-default="click or drop a .zip / .tar.gz">click or drop a .zip / .tar.gz</div>
           <input type="file" name="new_zip" accept=".zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.txz">
         </label>
+      </div>
+
+      <div class="arxiv-row">
+        <input type="text" name="old_arxiv" placeholder="…or paste an arXiv ID / URL (e.g. 1706.03762v1)"
+               autocomplete="off" spellcheck="false" aria-label="OLD version arXiv ID">
+        <input type="text" name="new_arxiv" placeholder="…or paste an arXiv ID / URL (e.g. 1706.03762v2)"
+               autocomplete="off" spellcheck="false" aria-label="NEW version arXiv ID">
       </div>
 
       <details>
@@ -290,6 +309,27 @@
     });
   });
 
+  // Each side takes an archive OR an arXiv id: picking a file clears that
+  // side's arXiv field, and typing an id clears the chosen file.
+  [['drop-old', 'old_zip', 'old_arxiv'], ['drop-new', 'new_zip', 'new_arxiv']].forEach(function (t) {
+    var zone = document.getElementById(t[0]);
+    var file = document.forms[0][t[1]];
+    var text = document.forms[0][t[2]];
+    file.addEventListener('change', function () {
+      if (file.files.length) { text.value = ''; text.classList.remove('ready'); }
+    });
+    text.addEventListener('input', function () {
+      var has = text.value.trim() !== '';
+      text.classList.toggle('ready', has);
+      if (has && file.files.length) {
+        file.value = '';
+        zone.classList.remove('ready');
+        var hint = zone.querySelector('.hint');
+        hint.textContent = hint.dataset.default;
+      }
+    });
+  });
+
   var form = document.getElementById('form');
   var go = document.getElementById('go');
   // NB: must not be named `status` — a global `var status` aliases the magic
@@ -330,6 +370,7 @@
   // Map the engine's log markers to friendly, numbered build stages so the
   // status line stays informative even though the raw log is collapsed.
   var STAGES = [
+    { re: /fetching arXiv/i,    label: 'Fetching from arXiv' },
     { re: /flattening/i,        label: 'Flattening sources' },
     { re: /running latexdiff/i, label: 'Running latexdiff' },
     { re: /building PDF/i,      label: 'Building PDF' },
@@ -399,14 +440,14 @@
     // The file inputs are display:none (hidden inside the drop zones), so the
     // browser's native `required` validation can't show its popup — it would
     // just silently refuse to submit. Validate here and show a real message.
-    var oldFile = form.old_zip.files.length;
-    var newFile = form.new_zip.files.length;
-    if (!oldFile || !newFile) {
+    var hasOld = form.old_zip.files.length || form.old_arxiv.value.trim();
+    var hasNew = form.new_zip.files.length || form.new_arxiv.value.trim();
+    if (!hasOld || !hasNew) {
       statusEl.className = 'err';
-      statusEl.textContent = !oldFile && !newFile
-        ? 'Please choose both the OLD and the NEW archive.'
-        : (!oldFile ? 'Please choose the OLD archive.'
-                    : 'Please choose the NEW archive.');
+      statusEl.textContent = !hasOld && !hasNew
+        ? 'Please provide both versions — an archive or an arXiv ID for each.'
+        : (!hasOld ? 'Please provide the OLD version (archive or arXiv ID).'
+                   : 'Please provide the NEW version (archive or arXiv ID).');
       return;
     }
 
@@ -479,6 +520,9 @@
       zone.classList.remove('ready');
       var hint = zone.querySelector('.hint');
       hint.textContent = hint.dataset.default;
+    });
+    document.querySelectorAll('.arxiv-row input').forEach(function (i) {
+      i.classList.remove('ready');   // form.reset() already cleared the value
     });
     result.style.display = 'none';
     logWrap.style.display = 'none';

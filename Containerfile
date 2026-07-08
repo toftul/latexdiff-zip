@@ -7,8 +7,9 @@
 # Run:    podman run --rm -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
 #
 # The official TeX Live image already ships latexdiff, latexpand, pdflatex,
-# bibtex, biber, tar and gzip; we add the figure-comparison tooling and the
-# extra archive extractors (zip, plus bzip2/xz so every tar variant unpacks).
+# bibtex, biber, tar and gzip; we add the figure-comparison tooling, the extra
+# archive extractors (zip, plus bzip2/xz so every tar variant unpacks), and
+# curl so arXiv ids can be fetched.
 FROM texlive/texlive:latest
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,6 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         unzip \
         bzip2 \
         xz-utils \
+        curl \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Debian's default ImageMagick policy blocks reading/writing PDF, PS and EPS for

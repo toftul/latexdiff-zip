@@ -1,11 +1,13 @@
 """Tiny web front-end for latexdiff-zip.
 
-Uploads two project zips, runs the `latexdiff-zip` CLI (already on PATH in the
-container image) as a background job, streams its log to the browser live via
-Server-Sent Events, and serves the resulting diff PDF when it is ready.
+Takes two project versions — each an uploaded archive or an arXiv id — runs
+the `latexdiff-zip` CLI (already on PATH in the container image) as a
+background job, streams its log to the browser live via Server-Sent Events,
+and serves the resulting diff PDF when it is ready.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -35,6 +37,27 @@ def _archive_ext(filename):
         if name.endswith(ext):
             return ext
     return ""
+
+
+# New-style arXiv ids (YYMM.NNNNN) or old-style ones (archive.SC/YYMMNNN),
+# each with an optional vN suffix.
+_ARXIV_ID_RE = re.compile(r"(\d{4}\.\d{4,5}|[a-z-]+(\.[A-Z]{2})?/\d{7})(v\d+)?")
+
+
+def _arxiv_id(raw):
+    """Normalise an arXiv reference (bare id, arXiv:<id>, or arxiv.org URL) to
+    a bare id like 2401.12345v2, or return None if it doesn't look like one.
+    Mirrors normalize_arxiv() in latexdiff-zip.sh; strict validation also keeps
+    the value safe to pass to the CLI (it can never start with '-' or '/')."""
+    s = (raw or "").strip().split("?", 1)[0]
+    s = re.sub(r"^https?://", "", s)
+    s = re.sub(r"^(www\.|export\.)", "", s)
+    m = re.match(r"arxiv\.org/[^/]+/(.+)", s, re.IGNORECASE)
+    if m:
+        s = m.group(1)
+    s = re.sub(r"^arxiv:", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\.pdf$", "", s, flags=re.IGNORECASE)
+    return s if _ARXIV_ID_RE.fullmatch(s) else None
 
 # How long a single build is allowed to run before we give up.
 BUILD_TIMEOUT = int(os.environ.get("LDZ_TIMEOUT", "600"))
@@ -125,20 +148,37 @@ def index():
 
 @app.post("/jobs")
 def create_job():
-    old = request.files.get("old_zip")
-    new = request.files.get("new_zip")
-    if not old or not new or not old.filename or not new.filename:
-        return jsonify(error="Please choose both the OLD and the NEW archive."), 400
-
-    # The CLI extracts by extension, so reject anything we can't unpack and keep
-    # the real suffix when saving (.tar.gz vs .zip leads to different handling).
-    old_ext = _archive_ext(old.filename)
-    new_ext = _archive_ext(new.filename)
-    if not old_ext or not new_ext:
-        return jsonify(
-            error="Each upload must be a .zip or a tar archive "
-                  "(.tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz)."
-        ), 400
+    # Each side arrives as an uploaded archive or as an arXiv id to fetch; an
+    # upload wins when both are given (the UI keeps them mutually exclusive).
+    sides = []  # per side: ("file", FileStorage, ext) or ("arxiv", id, None)
+    for label, upload, raw_id in (
+        ("OLD", request.files.get("old_zip"), request.form.get("old_arxiv", "")),
+        ("NEW", request.files.get("new_zip"), request.form.get("new_arxiv", "")),
+    ):
+        if upload and upload.filename:
+            # The CLI extracts by extension, so reject anything we can't unpack
+            # and keep the real suffix when saving (.tar.gz vs .zip leads to
+            # different handling).
+            ext = _archive_ext(upload.filename)
+            if not ext:
+                return jsonify(
+                    error=f"The {label} upload must be a .zip or a tar archive "
+                          "(.tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz)."
+                ), 400
+            sides.append(("file", upload, ext))
+        elif raw_id.strip():
+            arxiv = _arxiv_id(raw_id)
+            if not arxiv:
+                return jsonify(
+                    error=f"The {label} arXiv reference “{raw_id.strip()}” doesn't "
+                          "look like an arXiv id or URL (try e.g. 2401.12345v1)."
+                ), 400
+            sides.append(("arxiv", arxiv, None))
+        else:
+            return jsonify(
+                error=f"Please provide the {label} version: choose an archive "
+                      "or enter an arXiv id."
+            ), 400
 
     diff_type = request.form.get("diff_type", "UNDERLINE")
     if diff_type not in DIFF_TYPES:
@@ -153,11 +193,20 @@ def create_job():
     job_dir = os.path.join(JOBS_ROOT, job_id)
     os.makedirs(job_dir)
 
-    old_path = os.path.join(job_dir, "old" + old_ext)
-    new_path = os.path.join(job_dir, "new" + new_ext)
     out_path = os.path.join(job_dir, "diff.pdf")
-    old.save(old_path)
-    new.save(new_path)
+
+    # Turn each side into a CLI argument: saved upload path, or bare arXiv id
+    # (the CLI downloads the e-print itself).
+    args, descs = [], []
+    for name, (kind, value, ext) in zip(("old", "new"), sides):
+        if kind == "file":
+            path = os.path.join(job_dir, name + ext)
+            value.save(path)
+            args.append(path)
+            descs.append(value.filename)
+        else:
+            args.append(value)
+            descs.append(f"arXiv:{value}")
 
     cmd = ["latexdiff-zip", "-o", out_path, "-t", diff_type]
     if main_tex_old:
@@ -166,11 +215,12 @@ def create_job():
         cmd += ["-M", main_tex_new]
     if not embed_figs:
         cmd += ["-F"]
-    cmd += [old_path, new_path]
+    cmd += args
 
     open(os.path.join(job_dir, "status"), "w").write("RUNNING")
     _log(f"job {job_id} started: {diff_type}, embed={embed_figs}, "
-         f"main_old={main_tex_old or 'auto'}, main_new={main_tex_new or 'auto'}")
+         f"main_old={main_tex_old or 'auto'}, main_new={main_tex_new or 'auto'}, "
+         f"inputs: {descs[0]} vs {descs[1]}")
     threading.Thread(target=_run_build, args=(job_dir, cmd), daemon=True).start()
 
     return jsonify(id=job_id)

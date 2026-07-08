@@ -16,6 +16,15 @@ every change between two arbitrary versions; this does.
 `.zip` export against an arXiv `.tar.gz`, or any combination. The format is picked from the
 filename extension.
 
+Either side may instead be an **arXiv paper**, given as an id with optional version
+(`2401.12345v1`, `hep-th/9901001`), an `arXiv:<id>` reference, or an arxiv.org URL
+(`https://arxiv.org/abs/…`, `/pdf/…`, `/e-print/…`) — its source is downloaded automatically.
+So diffing two arXiv revisions needs no downloads at all:
+
+```sh
+./latexdiff-zip.sh 1706.03762v1 1706.03762v2
+```
+
 ## Requirements
 
 These must be on your `PATH`:
@@ -28,6 +37,8 @@ These must be on your `PATH`:
 
 Optional, for the [figure diff](FIGURES.md) (skipped gracefully if missing): `ImageMagick`,
 `pdfunite`/`gs`, `python3`.
+
+Fetching arXiv ids needs `curl` or `wget` (only required when you actually pass an id).
 
 Don't want to install any of this? Use `./latexdiff-zip-podman.sh` — same options, runs in a
 container.
@@ -55,6 +66,13 @@ container.
 
 # Mix formats: an Overleaf .zip against an arXiv .tar.gz
 ./latexdiff-zip.sh overleaf.zip arxiv.tar.gz
+
+# Fetch straight from arXiv: two revisions of a paper, no manual downloads
+./latexdiff-zip.sh 1706.03762v1 1706.03762v2
+
+# arXiv URLs (abs/pdf/e-print) and arXiv:<id> references work too, and an
+# arXiv side can be mixed with a local archive
+./latexdiff-zip.sh https://arxiv.org/abs/1706.03762v1 my-revision.zip
 
 # Pick the main file and output path explicitly
 ./latexdiff-zip.sh -m paper.tex -o ~/Desktop/changes.pdf v1.zip v2.zip
@@ -109,7 +127,9 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
 ## How it works
 
 1. Extracts both archives (`.zip` via `unzip`, tar archives via `tar`); if an archive has a
-   single top-level folder, descends into it.
+   single top-level folder, descends into it. An arXiv side is first fetched from
+   `arxiv.org/e-print/<id>` (a tarball, or a gzipped single `.tex` for one-file submissions;
+   pdf-only submissions have no source and fail with a clear error).
 2. Detects each project's main file independently (the `.tex` with `\documentclass`;
    override with `-m` for the old project, `-M` for the new).
 3. Flattens each project into one file with `latexpand --keep-comments`.
@@ -133,4 +153,6 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
   file), naming just one side with `-m`/`-M` is enough — auto-detection of the other side
   drops the main you named, so it won't trip over the two `\documentclass` files. Name both,
   or at least one; leaving both blank can't tell which version is old vs new and errors.
+- An arXiv id without an explicit version (`2401.12345`) fetches the **latest** version;
+  pin the versions you mean with `v1`, `v2`, ….
 - Engine is fixed to `pdflatex`; XeLaTeX/LuaLaTeX aren't supported yet.
