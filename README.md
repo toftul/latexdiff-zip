@@ -16,25 +16,31 @@ a diff PDF back.
 
 ## Run it yourself
 
-**Web UI** (drag-and-drop) — clone the repo, then, with [Podman](https://podman.io/) installed:
+### **CLI** — needs $\LaTeX$ installed in the system:
 
-```sh
-./latexdiff-zip-web.sh        # builds on first run → http://localhost:8080
-```
-
-**CLI** — needs $\LaTeX$ installed in the system:
-
+Download script
 ```sh
 curl -O https://raw.githubusercontent.com/toftul/latexdiff-zip/main/latexdiff-zip.sh
 chmod +x latexdiff-zip.sh
+```
+Run
+```sh
 ./latexdiff-zip.sh old.zip new.zip
 ./latexdiff-zip.sh 1706.03762v1 1706.03762v2   # straight from arXiv
 ```
 
-**CLI (container)** — run it inside the container instead:
+See [USAGE.md](USAGE.md) for all CLI flags and more examples. 
+
+### **CLI (container)** — run it inside the container instead:
 
 ```sh
 ./latexdiff-zip-podman.sh old.zip new.zip
+```
+
+### **Web UI** (drag-and-drop) — clone the repo, then, with [Podman](https://podman.io/) installed:
+
+```sh
+./latexdiff-zip-web.sh        # builds on first run → http://localhost:8080
 ```
 
 ## On Overleaf? Diff right there
