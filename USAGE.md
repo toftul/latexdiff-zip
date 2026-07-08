@@ -133,11 +133,14 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
 2. Detects each project's main file independently (the `.tex` with `\documentclass`;
    override with `-m` for the old project, `-M` for the new).
 3. Flattens each project into one file with `latexpand --keep-comments`.
-4. Runs `latexdiff --type=<TYPE> --append-safecmd=label` on the two flattened files.
-5. Copies all non-main files (figures, `.bib`, `.cls`, `.sty`, …) from the **new** project
+4. For BibTeX documents, compiles each side once and runs `bibtex` to produce its formatted
+   `.bbl`, then re-flattens with `latexpand --expand-bbl` — so edits to reference entries
+   show up in the diff like any other text (biblatex documents skip this; see notes).
+5. Runs `latexdiff --type=<TYPE> --append-safecmd=label` on the two flattened files.
+6. Copies all non-main files (figures, `.bib`, `.cls`, `.sty`, …) from the **new** project
    alongside the diff so it compiles.
-6. Builds the PDF with `pdflatex` → `bibtex` → `pdflatex` ×2 to resolve refs and citations.
-7. Compares figures and appends OLD/NEW collages for the changed ones (unless `-F`) —
+7. Builds the PDF with `pdflatex` → `bibtex` → `pdflatex` ×2 to resolve refs and citations.
+8. Compares figures and appends OLD/NEW collages for the changed ones (unless `-F`) —
    see [figure comparison](FIGURES.md).
 
 ## Notes & limitations
@@ -155,4 +158,9 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
   or at least one; leaving both blank can't tell which version is old vs new and errors.
 - An arXiv id without an explicit version (`2401.12345`) fetches the **latest** version;
   pin the versions you mean with `v1`, `v2`, ….
+- **Bibliography changes** are diffed for BibTeX documents (the formatted bibliography is
+  inlined before diffing). **biblatex** documents are the exception: their `.bbl` is not
+  typesettable text, so only citation keys are compared and a note is printed. If a side
+  fails to produce a `.bbl`, or the expanded diff fails to compile, the build automatically
+  falls back to the citation-only diff.
 - Engine is fixed to `pdflatex`; XeLaTeX/LuaLaTeX aren't supported yet.

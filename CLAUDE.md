@@ -56,8 +56,17 @@ the bash engine itself can still be exercised directly on the host.
 sides are fetched by `fetch_arxiv` instead) → descend
 into a single top-level dir if present → auto-detect the main `.tex` (the one with
 `\documentclass`) → `latexpand` each into one
-flat file → `latexdiff` the two → copy the **new** project's assets into a build dir →
-compile → compare figures → embed figure collages into the PDF.
+flat file → for BibTeX docs, compile each side once + `bibtex` and re-flatten with
+`latexpand --expand-bbl` so bibliography changes get diffed → `latexdiff` the two → copy
+the **new** project's assets into a build dir → compile → compare figures → embed figure
+collages into the PDF.
+
+- **Bibliography expansion is all-or-nothing and has a fallback ladder.** If any side that
+  needs a `.bbl` can't produce one, *both* sides stay unexpanded (expanding one side only
+  would mark the entire bibliography as changed). If the expanded diff fails to compile,
+  `build_diff_pdf` is rerun on a diff of the unexpanded flats. biblatex is deliberately
+  skipped: its `.bbl` is driver code, and latexpand's `--biber` embeds it verbatim in a
+  `filecontents*` block where latexdiff markup would corrupt it, not display it.
 
 - **Manual pdflatex sequence, deliberately not latexmk.** latexdiff markup routinely makes
   pdflatex exit non-zero (e.g. amsmath "Multiple \label's"), and latexmk's rerun heuristics

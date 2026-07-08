@@ -576,6 +576,159 @@ echo "flattening..."
 ( cd "$old_root" && latexpand --keep-comments "$main_old" > "$tmp/old_flat.tex" 2>/dev/null )
 ( cd "$new_root" && latexpand --keep-comments "$main_new" > "$tmp/new_flat.tex" 2>/dev/null )
 
+# ---- Bibliography expansion ------------------------------------------------
+# latexdiff only sees \cite keys, so an edited .bib entry would never show up
+# in the diff. For BibTeX documents we therefore compile each side once to
+# produce its formatted .bbl and re-flatten with the bibliography inlined
+# (latexpand --expand-bbl): reference changes then get marked up like any
+# other text. biblatex is skipped: its .bbl is driver code, not typesettable
+# text, and latexpand's --biber mode embeds it verbatim in a filecontents*
+# block where latexdiff markup would corrupt it rather than display changes.
+
+# Which bibliography system does a flattened document use?
+bib_kind() {
+    if grep -Eq '^[^%]*\\(usepackage(\[[^]]*\])?\{[^}]*biblatex|addbibresource|printbibliography)' "$1"; then
+        echo biblatex
+    elif grep -Eq '^[^%]*\\bibliography[[:space:]]*\{' "$1"; then
+        echo bibtex
+    else
+        echo none
+    fi
+}
+
+# Compile a project once (draft mode; errors tolerated -- only the .aux
+# matters) and run bibtex. Echoes the .bbl name relative to the project root,
+# or fails when no usable .bbl came out.
+make_bbl() {
+    local root="$1" main="$2"
+    local job; job="$(basename "$main" .tex)"
+    command -v bibtex >/dev/null 2>&1 || return 1
+    (
+        cd "$root" || exit 1
+        pdflatex -interaction=nonstopmode -draftmode "$main" >/dev/null 2>&1 || true
+        bibtex "$job" >/dev/null 2>&1 || true
+    )
+    [[ -s "$root/$job.bbl" ]] || return 1
+    printf '%s\n' "$job.bbl"
+}
+
+# Re-flatten one side with its .bbl inlined in place of \bibliography{...}.
+expand_side_bbl() {
+    local root="$1" main="$2" bbl="$3" flat="$4"
+    ( cd "$root" && latexpand --keep-comments --expand-bbl "$bbl" "$main" > "$flat" 2>/dev/null )
+}
+
+# Rewrite the OLD .bbl so its \bibitem entries line up with the NEW .bbl's.
+# latexdiff pairs bibliography entries essentially by position: entries share
+# so much structural boilerplate (\newblock, {\em ...}, punctuation) that
+# pairing two shifted entries' skeletons outscores matching one entry's real
+# content across a shift. One added reference would therefore mark every
+# later entry as changed. So each old entry is placed at the slot its key
+# occupies in the new .bbl; old-only entries fill the slots of new-only keys
+# (rendering as one visibly replaced entry) and any surplus goes to the end,
+# where it shows as plainly deleted. Best-effort: without python3, or on
+# anything unparseable, the .bbl is left untouched.
+reorder_old_bbl() {
+    local old_bbl_path="$1" new_bbl_path="$2"
+    command -v python3 >/dev/null 2>&1 || return 0
+    if python3 - "$old_bbl_path" "$new_bbl_path" > "$tmp/old_reordered.bbl" 2>/dev/null <<'PYEOF'
+import re, sys
+
+def parse(path):
+    text = open(path, encoding='utf-8', errors='replace').read()
+    end = re.search(r'\\end\{thebibliography\}', text)
+    if not re.search(r'\\begin\{thebibliography\}', text) or not end:
+        sys.exit(1)
+    item_re = re.compile(r'\\bibitem(?:\[[^\]]*\])?\{([^}]+)\}')
+    items = list(item_re.finditer(text))
+    if not items or items[0].start() > end.start():
+        sys.exit(1)
+    head = text[:items[0].start()]
+    entries = []
+    for i, m in enumerate(items):
+        stop = items[i + 1].start() if i + 1 < len(items) else end.start()
+        entries.append((m.group(1), text[m.start():stop]))
+    return head, entries, text[end.start():]
+
+old_head, old_entries, old_tail = parse(sys.argv[1])
+_, new_entries, _ = parse(sys.argv[2])
+
+old_by_key = {}
+for k, block in old_entries:
+    old_by_key.setdefault(k, block)
+
+# Common keys go to the slot they occupy in the new .bbl.
+slots = [None] * len(new_entries)
+used = set()
+for i, (k, _) in enumerate(new_entries):
+    if k in old_by_key and k not in used:
+        slots[i] = old_by_key[k]
+        used.add(k)
+
+# Old-only entries fill the new-only slots (in their original order).
+leftover = []
+for k, block in old_entries:
+    if k not in used:
+        leftover.append(block)
+        used.add(k)
+li = iter(leftover)
+out = []
+for s in slots:
+    if s is None:
+        s = next(li, None)
+    if s is not None:
+        out.append(s)
+out.extend(li)   # more removals than additions: the rest goes to the end
+
+sys.stdout.write(old_head + ''.join(out) + old_tail)
+PYEOF
+    then
+        cp "$tmp/old_reordered.bbl" "$old_bbl_path"
+    fi
+    return 0
+}
+
+bbl_expanded=0
+old_bib="$(bib_kind "$tmp/old_flat.tex")"
+new_bib="$(bib_kind "$tmp/new_flat.tex")"
+if [[ "$old_bib" == biblatex || "$new_bib" == biblatex ]]; then
+    echo "note: biblatex document; bibliography changes will not show in the diff"
+elif [[ "$old_bib" == bibtex || "$new_bib" == bibtex ]]; then
+    echo "expanding bibliographies (reference changes will show in the diff)..."
+    old_bbl=""; new_bbl=""; bbl_ok=1
+    if [[ "$old_bib" == bibtex ]]; then
+        old_bbl="$(make_bbl "$old_root" "$main_old")" || bbl_ok=0
+    fi
+    if [[ "$new_bib" == bibtex ]]; then
+        new_bbl="$(make_bbl "$new_root" "$main_new")" || bbl_ok=0
+    fi
+    if [[ $bbl_ok -eq 1 ]]; then
+        # Keep the plain flats around: if the expanded diff fails to compile,
+        # the build step below retries with these.
+        cp "$tmp/old_flat.tex" "$tmp/old_flat_noexp.tex"
+        cp "$tmp/new_flat.tex" "$tmp/new_flat_noexp.tex"
+        # Align the old bibliography with the new one so latexdiff pairs
+        # each reference with itself rather than by position.
+        if [[ -n "$old_bbl" && -n "$new_bbl" ]]; then
+            reorder_old_bbl "$old_root/$old_bbl" "$new_root/$new_bbl"
+        fi
+        # A side without a bibliography stays plain; the whole bibliography
+        # then correctly shows as added (or deleted) in the diff.
+        if [[ -n "$old_bbl" ]]; then
+            expand_side_bbl "$old_root" "$main_old" "$old_bbl" "$tmp/old_flat.tex"
+        fi
+        if [[ -n "$new_bbl" ]]; then
+            expand_side_bbl "$new_root" "$main_new" "$new_bbl" "$tmp/new_flat.tex"
+        fi
+        bbl_expanded=1
+    else
+        # All or nothing: expanding only one side would diff the formatted
+        # bibliography against \bibliography{...} and mark all of it changed.
+        echo "warning: could not generate a .bbl; bibliography changes will not show in the diff" >&2
+    fi
+fi
+# ---- End bibliography expansion --------------------------------------------
+
 echo "running latexdiff (type=$diff_type)..."
 set +e
 latexdiff --type="$diff_type" --append-safecmd="label" \
@@ -609,25 +762,45 @@ cd "$tmp/build"
 # non-zero exit.
 runtex() { pdflatex -interaction=nonstopmode diff.tex >/dev/null 2>&1 || true; }
 
-runtex   # pass 1: write .aux (labels and \citation entries)
+# The fixed sequence, as a function so the bibliography-expansion fallback
+# below can rerun it from a clean slate.
+build_diff_pdf() {
+    rm -f diff.aux diff.bbl diff.bcf diff.blg diff.pdf
 
-# Run whichever bibliography backend the document actually uses.
-if [[ -f diff.bcf ]]; then
-    if command -v biber >/dev/null; then
-        biber diff >/dev/null 2>&1 || true
-    else
-        echo "warning: document needs biber but it is not installed; citations may stay unresolved" >&2
+    runtex   # pass 1: write .aux (labels and \citation entries)
+
+    # Run whichever bibliography backend the document actually uses. (With an
+    # expanded bibliography neither trigger fires -- the .bbl is inlined.)
+    if [[ -f diff.bcf ]]; then
+        if command -v biber >/dev/null; then
+            biber diff >/dev/null 2>&1 || true
+        else
+            echo "warning: document needs biber but it is not installed; citations may stay unresolved" >&2
+        fi
+    elif grep -q '\\bibdata' diff.aux 2>/dev/null; then
+        if command -v bibtex >/dev/null; then
+            bibtex diff >/dev/null 2>&1 || true
+        else
+            echo "warning: document needs bibtex but it is not installed; citations may stay unresolved" >&2
+        fi
     fi
-elif grep -q '\\bibdata' diff.aux 2>/dev/null; then
-    if command -v bibtex >/dev/null; then
-        bibtex diff >/dev/null 2>&1 || true
-    else
-        echo "warning: document needs bibtex but it is not installed; citations may stay unresolved" >&2
-    fi
+
+    runtex   # pass 2: pull in the .bbl and resolve labels (writes \bibcite entries)
+    runtex   # pass 3: read \bibcite back so citations and cross-references converge
+    [[ -f diff.pdf ]]
+}
+
+# latexdiff markup inside a formatted bibliography occasionally produces
+# unbuildable TeX; rather than fail, redo the diff from the unexpanded flats
+# (giving up only the bibliography markup, i.e. the pre-expansion behaviour).
+if ! build_diff_pdf && [[ $bbl_expanded -eq 1 ]]; then
+    echo "warning: build failed with expanded bibliographies; retrying without them" >&2
+    set +e
+    latexdiff --type="$diff_type" --append-safecmd="label" \
+        "$tmp/old_flat_noexp.tex" "$tmp/new_flat_noexp.tex" > diff.tex 2>> "$tmp/latexdiff.log"
+    set -e
+    build_diff_pdf || true
 fi
-
-runtex   # pass 2: pull in the .bbl and resolve labels (writes \bibcite entries)
-runtex   # pass 3: read \bibcite back so citations and cross-references converge
 
 if [[ ! -f diff.pdf ]]; then
     echo "error: PDF build failed. Tail of diff.log:" >&2
