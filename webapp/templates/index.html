@@ -274,7 +274,7 @@
     </div>
   </div>
 
-  <figure class="example">
+  <figure class="example" id="example">
     <figcaption>Example output</figcaption>
     <img src="{{ url_for('static', filename='diff_example.png') }}"
          alt="Example diff PDF: old text struck out in red, new text underlined in blue, and an OLD vs NEW side-by-side figure comparison"
@@ -345,6 +345,7 @@
   var restart = document.getElementById('restart');
   var themeToggle = document.getElementById('theme-toggle');
   var cow = document.getElementById('cow');
+  var example = document.getElementById('example');
   var timer = null, started = 0, es = null;
 
   // Dark-mode toggle: overrides the OS setting and persists the choice. The
@@ -495,6 +496,7 @@
         download.href = pdfUrl;
         openTab.href = pdfUrl;
         cow.style.display = 'none';   // the PDF is here; the cow's work is done
+        example.style.display = 'none';  // the real output replaces the example
         result.style.display = 'block';
       } else {
         statusEl.className = 'err';
@@ -528,6 +530,7 @@
     result.style.display = 'none';
     logWrap.style.display = 'none';
     cow.style.display = '';        // welcome the cow back for the next run
+    example.style.display = '';    // and bring the example screenshot back too
     statusEl.className = '';
     statusEl.textContent = '';
     window.scrollTo({ top: 0, behavior: 'smooth' });
