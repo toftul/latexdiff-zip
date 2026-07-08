@@ -467,6 +467,7 @@ _IG_RE = re.compile(r"\\includegraphics(?:\s*\[[^\]]*\])?\s*\{([^}]+)\}")
 _LABEL_RE = re.compile(r"\\label\s*\{([^}]+)\}")
 _FIGBEG_RE = re.compile(r"\\begin\{(?:figure\*?|wrapfigure\*?|subfigure\*?)\}")
 _FIGEND_RE = re.compile(r"\\end\{(?:figure\*?|wrapfigure\*?|subfigure\*?)\}")
+_GRAPHICSPATH_RE = re.compile(r"\\graphicspath\s*")
 
 
 def _im_cmd():
@@ -527,6 +528,14 @@ def make_collage(old_png, new_png, out, figcmp):
                 "-border", "2", out])
 
 
+def make_single(src_png, out, label, color, figcmp):
+    """A single labelled panel, for a figure that exists on only one side."""
+    lab = os.path.join(figcmp, "single_lab.png")
+    if not label_png(src_png, lab, label, color):
+        return False
+    return _im([lab, "-bordercolor", "#555555", "-border", "2", out])
+
+
 def _md5(path):
     h = hashlib.md5()
     with open(path, "rb") as f:
@@ -535,16 +544,67 @@ def _md5(path):
     return h.hexdigest()
 
 
-def _resolve(path, root):
-    for ext in RESOLVE_EXTS:
-        p = os.path.join(root, path + ext)
-        if os.path.isfile(p):
-            return p
+# Drop an edited pair whose rasterised images differ in fewer than this fraction
+# of pixels: the change is only in the file bytes (e.g. a new PDF /CreationDate),
+# not on the page.
+VISUAL_SKIP_FRACTION = 0.0005
+
+
+def _visually_identical(a, b):
+    """True if rasterised figures a and b look the same. Catches a regenerated
+    file whose bytes differ but whose pixels do not (matplotlib/Inkscape stamp a
+    fresh timestamp on every export). Any comparison failure -- including a size
+    change, which is a genuine difference -- returns False, so the pair is kept."""
+    cmp_cmd = ["magick", "compare"] if which("magick") else ["compare"]
+    p = subprocess.run(cmp_cmd + ["-metric", "AE", "-fuzz", "1%", a, b, "null:"],
+                       stdout=DEVNULL, stderr=subprocess.PIPE, text=True)
+    if p.returncode >= 2:                          # incomparable (e.g. size change)
+        return False
+    try:
+        ae = float(p.stderr.strip().split()[0].replace(",", ""))
+    except (ValueError, IndexError):
+        return False
+    if ae == 0:
+        return True
+    dims = _im_identify(["-format", "%w %h", a])
+    if dims:
+        try:
+            w, h = (int(x) for x in dims.split()[:2])
+            if w * h and ae / (w * h) < VISUAL_SKIP_FRACTION:
+                return True
+        except (ValueError, ZeroDivisionError):
+            pass
+    return False
+
+
+def _parse_graphicspath(text):
+    """Directories declared by \\graphicspath{{dir1/}{dir2/}}, in order."""
+    dirs = []
+    for gm in _GRAPHICSPATH_RE.finditer(text):
+        inner, _ = _read_group(text, gm.end())
+        if inner is None:
+            continue
+        for dm in re.finditer(r"\{([^{}]*)\}", inner):
+            d = dm.group(1).strip()
+            if d and d not in dirs:
+                dirs.append(d)
+    return dirs
+
+
+def _resolve(path, root, graphics_paths=()):
+    """Locate a figure file the way LaTeX would: search the document directory
+    plus each \\graphicspath directory, trying known extensions when the
+    reference has none. The document directory is tried first, so an explicit
+    'figs/plot' still resolves even when \\graphicspath{{figs/}} is also set."""
+    for prefix in ("", *graphics_paths):
+        for ext in RESOLVE_EXTS:
+            p = os.path.join(root, prefix, path + ext)
+            if os.path.isfile(p):
+                return p
     return None
 
 
-def _parse_refs(tex_path):
-    text = read_text(tex_path)
+def _parse_refs(text):
     begins = [m.start() for m in _FIGBEG_RE.finditer(text)]
     ends = [m.start() for m in _FIGEND_RE.finditer(text)]
     refs = []
@@ -560,12 +620,26 @@ def _parse_refs(tex_path):
     return refs
 
 
+def _fig_name(ref):
+    return re.sub(r"[^a-zA-Z0-9._-]", "_", ref["label"] or ref["path"])
+
+
 def match_figures(old_root, new_root, old_flat, new_flat):
-    """One (old_file, new_file, safe_name) per changed figure pair. Figures are
-    matched by \\label first, then by document order for unlabelled ones; pairs
-    whose files are byte-identical are skipped."""
-    old_refs = _parse_refs(old_flat)
-    new_refs = _parse_refs(new_flat)
+    """Pair figures between the two versions by \\label first, then by document
+    order. Returns three lists of resolved files:
+
+        changed = [(old_file, new_file, name)]  paired but byte-different
+        added   = [(new_file, name)]            only in the new version
+        removed = [(old_file, name)]            only in the old version
+
+    Byte-identical pairs are dropped here; pairs that differ only in bytes but
+    not in pixels are dropped later, once rasterised."""
+    old_text = read_text(old_flat)
+    new_text = read_text(new_flat)
+    old_refs = _parse_refs(old_text)
+    new_refs = _parse_refs(new_text)
+    old_gp = _parse_graphicspath(old_text)
+    new_gp = _parse_graphicspath(new_text)
 
     old_by_label = {}
     for r in old_refs:
@@ -582,45 +656,53 @@ def match_figures(old_root, new_root, old_flat, new_flat):
             unmatched_new.append(nr)
 
     old_unmatched = [r for r in old_refs if id(r) not in old_used]
-    for j, nr in enumerate(unmatched_new):
-        if j < len(old_unmatched):
-            matched.append((old_unmatched[j], nr))
+    k = min(len(unmatched_new), len(old_unmatched))
+    for j in range(k):
+        matched.append((old_unmatched[j], unmatched_new[j]))
+    added_refs = unmatched_new[k:]
+    removed_refs = old_unmatched[k:]
 
-    result = []
+    changed = []
     for or_, nr in matched:
-        old_file = _resolve(or_["path"], old_root)
-        new_file = _resolve(nr["path"], new_root)
+        old_file = _resolve(or_["path"], old_root, old_gp)
+        new_file = _resolve(nr["path"], new_root, new_gp)
         if old_file is None or new_file is None:
             continue
         if _md5(old_file) == _md5(new_file):
             continue
-        name = nr["label"] if nr["label"] else nr["path"]
-        safe = re.sub(r"[^a-zA-Z0-9._-]", "_", name)
-        result.append((old_file, new_file, safe))
-    return result
+        changed.append((old_file, new_file, _fig_name(nr)))
+
+    added = [(f, _fig_name(nr)) for nr in added_refs
+             if (f := _resolve(nr["path"], new_root, new_gp)) is not None]
+    removed = [(f, _fig_name(or_)) for or_ in removed_refs
+               if (f := _resolve(or_["path"], old_root, old_gp)) is not None]
+    return changed, added, removed
 
 
-def _emit_collage(old_file, new_file, name, figcmp, collages, manifest):
-    n = f"{len(manifest):03d}"
-    old_png = os.path.join(figcmp, f"src_old_{n}.png")
-    new_png = os.path.join(figcmp, f"src_new_{n}.png")
-    if not to_png(old_file, old_png):
-        warn(f"  warning: cannot convert {old_file}")
-        return
-    if not to_png(new_file, new_png):
-        warn(f"  warning: cannot convert {new_file}")
-        return
-    collage = os.path.join(collages, f"{n}_{name}.png")
-    if make_collage(old_png, new_png, collage, figcmp):
-        manifest.append((collage, name))
-    else:
-        warn(f"  warning: collage failed for {name}")
+def _emit_single(refs, verb, label, color, figcmp, collages, manifest):
+    """One single-panel page per one-sided figure. Returns how many were added."""
+    count = 0
+    for i, (src, name) in enumerate(refs):
+        png = os.path.join(figcmp, f"src_{verb}_{i:03d}.png")
+        if not to_png(src, png):
+            warn(f"  warning: cannot convert {src}")
+            continue
+        say(f"  figure {verb}: {name}")
+        collage = os.path.join(collages, f"{verb}_{i:03d}_{name}.png")
+        if make_single(png, collage, label, color, figcmp):
+            manifest.append((collage, name))
+            count += 1
+        else:
+            warn(f"  warning: collage failed for {name}")
+    return count
 
 
 def compare_figures(old_root, new_root, old_flat, new_flat, tmp):
-    """Return a manifest [(collage_png, display_name), ...] of changed figures,
-    printing one line per change. Degrades to an empty manifest (with a warning)
-    when ImageMagick is absent."""
+    """Return a manifest [(collage_png, display_name), ...] describing every
+    figure change: edited pairs (side-by-side OLD/NEW), plus figures added or
+    removed (a single labelled panel). Edited pairs whose rasterised pixels are
+    identical -- only the file bytes changed -- are dropped. Degrades to an empty
+    manifest (with a warning) when ImageMagick is absent."""
     if not (which("magick") or which("convert")):
         warn("warning: ImageMagick not found; skipping figure comparison")
         return []
@@ -629,13 +711,44 @@ def compare_figures(old_root, new_root, old_flat, new_flat, tmp):
     os.makedirs(figcmp, exist_ok=True)
     os.makedirs(collages, exist_ok=True)
 
-    manifest = []
-    for old_file, new_file, name in match_figures(old_root, new_root, old_flat, new_flat):
-        say(f"  figure changed: {name}")
-        _emit_collage(old_file, new_file, name, figcmp, collages, manifest)
+    changed, added, removed = match_figures(old_root, new_root, old_flat, new_flat)
 
-    if manifest:
-        say(f"figure diff: {len(manifest)} figure(s) changed")
+    manifest = []
+    n_changed = 0
+    for i, (old_file, new_file, name) in enumerate(changed):
+        n = f"{i:03d}"
+        old_png = os.path.join(figcmp, f"src_old_{n}.png")
+        new_png = os.path.join(figcmp, f"src_new_{n}.png")
+        if not to_png(old_file, old_png):
+            warn(f"  warning: cannot convert {old_file}")
+            continue
+        if not to_png(new_file, new_png):
+            warn(f"  warning: cannot convert {new_file}")
+            continue
+        if _visually_identical(old_png, new_png):
+            continue                               # same pixels, only bytes changed
+        say(f"  figure changed: {name}")
+        collage = os.path.join(collages, f"chg_{n}_{name}.png")
+        if make_collage(old_png, new_png, collage, figcmp):
+            manifest.append((collage, name))
+            n_changed += 1
+        else:
+            warn(f"  warning: collage failed for {name}")
+
+    n_added = _emit_single(added, "added", "NEW ONLY", "#006622",
+                           figcmp, collages, manifest)
+    n_removed = _emit_single(removed, "removed", "OLD ONLY", "#CC2200",
+                             figcmp, collages, manifest)
+
+    parts = []
+    if n_changed:
+        parts.append(f"{n_changed} changed")
+    if n_added:
+        parts.append(f"{n_added} added")
+    if n_removed:
+        parts.append(f"{n_removed} removed")
+    if parts:
+        say("figure diff: " + ", ".join(parts) + " figure(s)")
     else:
         say("figure diff: no figure changes detected")
     return manifest

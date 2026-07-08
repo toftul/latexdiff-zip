@@ -97,7 +97,14 @@ optional deps are missing — never make these hard requirements.
 
 - Figures are matched between versions by **`\label` first, then document order**
   (`match_figures`). This is what lets a renamed image file (`plot_v1.pdf` → `plot_v2.pdf`)
-  still be paired.
+  still be paired. `match_figures` returns three lists — **changed** (paired, an OLD/NEW
+  collage), **added** and **removed** (one-sided figures, a single `NEW ONLY`/`OLD ONLY`
+  panel via `make_single`). `_resolve` honours `\graphicspath` (document dir first, then each
+  entry, so both a bare name and an explicit `figs/plot` resolve).
+- **Two-stage change detection avoids false positives.** `match_figures` drops byte-identical
+  pairs by md5; then, after rasterising, `compare_figures` drops pairs that are pixel-identical
+  via `_visually_identical` (`magick compare -metric AE`). This is what stops a regenerated
+  PDF whose only change is a `/CreationDate` from producing a spurious collage.
 - `_im`/`_im_identify` wrap ImageMagick, preferring v7 `magick` over v6 `convert`/`identify`.
 - Collages are built as PNGs (any source format is rasterised first), then **embedded by
   building a separate standalone appendix PDF and merging it** (`pdfunite`, falling back to

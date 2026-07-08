@@ -46,6 +46,9 @@ extract path of either engine.
 | `bib-missing` | A side that can't produce a `.bbl` falls back gracefully with a warning. |
 | `revtex-arxiv-bbl-nobib` | arXiv-style source that ships a `.bbl` but no `.bib`, REVTeX `\href` stripping, different old/new main names. Offline repro of the 2406.11300 bug. |
 | `same-archive` | One archive holding both `old.tex` and `new.tex`, named via `-M`. |
+| `figure-graphicspath` | `\graphicspath{{figs/}}` resolution — a bare name and an explicit `figs/` prefix both resolve (2 changed). |
+| `figure-visually-identical` | A byte-different but pixel-identical figure is dropped (no change reported). |
+| `figure-added` / `figure-removed` | A one-sided figure gets a `NEW ONLY` / `OLD ONLY` page. |
 
 Fixtures hold only source (`.tex`/`.bib`, and a shipped `.bbl` where that is the
 scenario) — never build artifacts. The engine extracts and builds in a temp

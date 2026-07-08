@@ -175,6 +175,31 @@ CASES = [
     Case("same_archive", both_dir="same-archive/both", same_archive=True,
          args=["-M", "new.tex"], probe_present=["leaps"], min_pages=1),
 
+    # ---- figure-diff features ---------------------------------------------
+    # \graphicspath resolution: a bare \includegraphics{plot1} (found via
+    # figs/) plus an explicit figs/plot2 -- both must resolve, so "2 changed".
+    Case("figure_graphicspath",
+         old_dir="figure-graphicspath/old", new_dir="figure-graphicspath/new",
+         need_lines=["figure changed", "figure diff: 2 changed"], min_pages=1),
+
+    # Byte-different but pixel-identical figure (a regenerated export): dropped,
+    # so the diff reports no figure change.
+    Case("figure_visually_identical",
+         old_dir="figure-visually-identical/old", new_dir="figure-visually-identical/new",
+         need_lines=["no figure changes detected"],
+         forbid_lines=["figure changed", "figure added", "figure removed"],
+         min_pages=1),
+
+    # A figure present only in the new version gets a NEW ONLY page.
+    Case("figure_added", old_dir="figure-added/old", new_dir="figure-added/new",
+         need_lines=["figure added", "figure diff: 1 added"],
+         forbid_lines=["figure changed", "figure removed"], min_pages=2),
+
+    # A figure present only in the old version gets an OLD ONLY page.
+    Case("figure_removed", old_dir="figure-removed/old", new_dir="figure-removed/new",
+         need_lines=["figure removed", "figure diff: 1 removed"],
+         forbid_lines=["figure changed", "figure added"], min_pages=2),
+
     # ---- network cases (opt-in: LDZ_NETWORK=1) ----------------------------
     Case("arxiv_natbib", literal=["1706.03762v1", "1706.03762v2"], args=["-F"],
          need_lines=["fetching arXiv", "running latexdiff"],
