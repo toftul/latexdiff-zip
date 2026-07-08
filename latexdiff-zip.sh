@@ -596,19 +596,33 @@ bib_kind() {
     fi
 }
 
-# Compile a project once (draft mode; errors tolerated -- only the .aux
-# matters) and run bibtex. Echoes the .bbl name relative to the project root,
-# or fails when no usable .bbl came out.
+# Produce a formatted .bbl for a project side; echoes its name relative to
+# the project root, or fails when no usable one (>= 1 \bibitem) came out.
+# When the project has .bib database(s), the .bbl is regenerated (compile in
+# draft mode, errors tolerated -- only the .aux matters -- then bibtex). But
+# arXiv sources ship the formatted .bbl *instead of* the .bib, and bibtex,
+# finding no database, would overwrite that good .bbl with an empty one -- so
+# a shipped .bbl is stashed first, used directly when there is nothing to
+# regenerate from, and restored if regeneration comes out unusable.
 make_bbl() {
     local root="$1" main="$2"
     local job; job="$(basename "$main" .tex)"
-    command -v bibtex >/dev/null 2>&1 || return 1
-    (
-        cd "$root" || exit 1
-        pdflatex -interaction=nonstopmode -draftmode "$main" >/dev/null 2>&1 || true
-        bibtex "$job" >/dev/null 2>&1 || true
-    )
-    [[ -s "$root/$job.bbl" ]] || return 1
+    local bbl="$root/$job.bbl" stash="$root/.ldz_shipped.bbl"
+    rm -f "$stash"
+    if [[ -s "$bbl" ]]; then cp "$bbl" "$stash"; fi
+    if command -v bibtex >/dev/null 2>&1 \
+        && [[ -n "$(find "$root" -name '*.bib' 2>/dev/null)" ]]; then
+        (
+            cd "$root" || exit 1
+            pdflatex -interaction=nonstopmode -draftmode "$main" >/dev/null 2>&1 || true
+            bibtex "$job" >/dev/null 2>&1 || true
+        ) || true
+    fi
+    if ! grep -q '\\bibitem' "$bbl" 2>/dev/null && [[ -f "$stash" ]]; then
+        cp "$stash" "$bbl"
+    fi
+    rm -f "$stash"
+    grep -q '\\bibitem' "$bbl" 2>/dev/null || return 1
     printf '%s\n' "$job.bbl"
 }
 
@@ -618,31 +632,77 @@ expand_side_bbl() {
     ( cd "$root" && latexpand --keep-comments --expand-bbl "$bbl" "$main" > "$flat" 2>/dev/null )
 }
 
-# Rewrite the OLD .bbl so its \bibitem entries line up with the NEW .bbl's.
-# latexdiff pairs bibliography entries essentially by position: entries share
-# so much structural boilerplate (\newblock, {\em ...}, punctuation) that
-# pairing two shifted entries' skeletons outscores matching one entry's real
-# content across a shift. One added reference would therefore mark every
-# later entry as changed. So each old entry is placed at the slot its key
-# occupies in the new .bbl; old-only entries fill the slots of new-only keys
-# (rendering as one visibly replaced entry) and any surplus goes to the end,
-# where it shows as plainly deleted. Best-effort: without python3, or on
-# anything unparseable, the .bbl is left untouched.
-reorder_old_bbl() {
-    local old_bbl_path="$1" new_bbl_path="$2"
+# Prepare the .bbl file(s) for diffing; in-place, python3, best-effort (a
+# no-op without python3 or on unparseable input). Two rewrites:
+#
+# 1. Hyperlinks are unwrapped: \href{url}{text} (and REVTeX's \href@noop)
+#    becomes just text. ulem's \uwave -- the UNDERLINE markup -- loops
+#    forever or overflows TeX's input stack on hyperlinks inside changed
+#    text, and \mbox protection (latexdiff --append-mboxsafecmd) hangs the
+#    same way. A diff PDF can afford to lose links in the references.
+#
+# 2. The OLD entries are lined up with the NEW .bbl's key order. latexdiff
+#    pairs bibliography entries essentially by position: entries share so
+#    much structural boilerplate (\newblock, {\em ...}, punctuation) that
+#    pairing two shifted entries' skeletons outscores matching one entry's
+#    real content across a shift, so one added reference would mark every
+#    later entry as changed. Each old entry therefore goes to the slot its
+#    key occupies in the new .bbl; old-only entries fill the slots of
+#    new-only keys (rendering as one visibly replaced entry) and any surplus
+#    goes to the end, where it shows as plainly deleted.
+prepare_bbls() {
+    local oldb="$1" newb="$2"    # path of each side's .bbl; either may be ""
     command -v python3 >/dev/null 2>&1 || return 0
-    if python3 - "$old_bbl_path" "$new_bbl_path" > "$tmp/old_reordered.bbl" 2>/dev/null <<'PYEOF'
+    python3 - "$oldb" "$newb" 2>/dev/null <<'PYEOF' || true
 import re, sys
 
-def parse(path):
-    text = open(path, encoding='utf-8', errors='replace').read()
+CMD_RE = re.compile(r'\\href(?:@noop)?(?![a-zA-Z@])')
+
+def read_group(text, p):
+    """Read one {...} group (brace-balanced) at text[p:], skipping leading
+    whitespace. Returns (content, position after group) or (None, p)."""
+    n = len(text)
+    while p < n and text[p] in ' \t\n':
+        p += 1
+    if p >= n or text[p] != '{':
+        return None, p
+    depth, start = 0, p
+    while p < n:
+        if text[p] == '{':
+            depth += 1
+        elif text[p] == '}':
+            depth -= 1
+            if depth == 0:
+                return text[start + 1:p], p + 1
+        p += 1
+    return None, start
+
+def strip_links(text):
+    out, i = [], 0
+    for m in CMD_RE.finditer(text):
+        if m.start() < i:
+            continue        # inside a group we already consumed
+        url, p1 = read_group(text, m.end())
+        if url is None:     # not followed by {url}{text}: e.g. the
+            continue        # \providecommand definitions in the .bbl head
+        label, p2 = read_group(text, p1)
+        if label is None:
+            continue
+        out.append(text[i:m.start()])
+        out.append(label)
+        i = p2
+    out.append(text[i:])
+    return ''.join(out)
+
+def parse(text):
     end = re.search(r'\\end\{thebibliography\}', text)
     if not re.search(r'\\begin\{thebibliography\}', text) or not end:
-        sys.exit(1)
-    item_re = re.compile(r'\\bibitem(?:\[[^\]]*\])?\{([^}]+)\}')
+        return None
+    # \s* between the parts: REVTeX-family styles emit "\bibitem [{...}]{key}".
+    item_re = re.compile(r'\\bibitem\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}')
     items = list(item_re.finditer(text))
     if not items or items[0].start() > end.start():
-        sys.exit(1)
+        return None
     head = text[:items[0].start()]
     entries = []
     for i, m in enumerate(items):
@@ -650,41 +710,52 @@ def parse(path):
         entries.append((m.group(1), text[m.start():stop]))
     return head, entries, text[end.start():]
 
-old_head, old_entries, old_tail = parse(sys.argv[1])
-_, new_entries, _ = parse(sys.argv[2])
+old_path, new_path = sys.argv[1], sys.argv[2]
+texts = {}
+for path in (old_path, new_path):
+    if path:
+        raw = open(path, encoding='utf-8', errors='replace').read()
+        texts[path] = strip_links(raw)
 
-old_by_key = {}
-for k, block in old_entries:
-    old_by_key.setdefault(k, block)
+if old_path and new_path:
+    parsed_old = parse(texts[old_path])
+    parsed_new = parse(texts[new_path])
+    if parsed_old and parsed_new:
+        old_head, old_entries, old_tail = parsed_old
+        _, new_entries, _ = parsed_new
 
-# Common keys go to the slot they occupy in the new .bbl.
-slots = [None] * len(new_entries)
-used = set()
-for i, (k, _) in enumerate(new_entries):
-    if k in old_by_key and k not in used:
-        slots[i] = old_by_key[k]
-        used.add(k)
+        old_by_key = {}
+        for k, block in old_entries:
+            old_by_key.setdefault(k, block)
 
-# Old-only entries fill the new-only slots (in their original order).
-leftover = []
-for k, block in old_entries:
-    if k not in used:
-        leftover.append(block)
-        used.add(k)
-li = iter(leftover)
-out = []
-for s in slots:
-    if s is None:
-        s = next(li, None)
-    if s is not None:
-        out.append(s)
-out.extend(li)   # more removals than additions: the rest goes to the end
+        # Common keys go to the slot they occupy in the new .bbl.
+        slots = [None] * len(new_entries)
+        used = set()
+        for i, (k, _) in enumerate(new_entries):
+            if k in old_by_key and k not in used:
+                slots[i] = old_by_key[k]
+                used.add(k)
 
-sys.stdout.write(old_head + ''.join(out) + old_tail)
+        # Old-only entries fill the new-only slots (in original order).
+        leftover = []
+        for k, block in old_entries:
+            if k not in used:
+                leftover.append(block)
+                used.add(k)
+        li = iter(leftover)
+        out = []
+        for s in slots:
+            if s is None:
+                s = next(li, None)
+            if s is not None:
+                out.append(s)
+        out.extend(li)   # more removals than additions: rest goes to the end
+
+        texts[old_path] = old_head + ''.join(out) + old_tail
+
+for path, text in texts.items():
+    open(path, 'w', encoding='utf-8').write(text)
 PYEOF
-    then
-        cp "$tmp/old_reordered.bbl" "$old_bbl_path"
-    fi
     return 0
 }
 
@@ -707,11 +778,10 @@ elif [[ "$old_bib" == bibtex || "$new_bib" == bibtex ]]; then
         # the build step below retries with these.
         cp "$tmp/old_flat.tex" "$tmp/old_flat_noexp.tex"
         cp "$tmp/new_flat.tex" "$tmp/new_flat_noexp.tex"
-        # Align the old bibliography with the new one so latexdiff pairs
-        # each reference with itself rather than by position.
-        if [[ -n "$old_bbl" && -n "$new_bbl" ]]; then
-            reorder_old_bbl "$old_root/$old_bbl" "$new_root/$new_bbl"
-        fi
+        # Unwrap hyperlinks (they break under ulem markup) and align the old
+        # bibliography with the new one so latexdiff pairs each reference
+        # with itself rather than by position.
+        prepare_bbls "${old_bbl:+$old_root/$old_bbl}" "${new_bbl:+$new_root/$new_bbl}"
         # A side without a bibliography stays plain; the whole bibliography
         # then correctly shows as added (or deleted) in the diff.
         if [[ -n "$old_bbl" ]]; then
@@ -782,6 +852,18 @@ build_diff_pdf() {
             bibtex diff >/dev/null 2>&1 || true
         else
             echo "warning: document needs bibtex but it is not installed; citations may stay unresolved" >&2
+        fi
+    fi
+
+    # If a backend was needed but produced no usable diff.bbl (arXiv sources
+    # ship the formatted .bbl instead of the .bib database, and the diff
+    # compiles under jobname "diff", so the shipped <main>.bbl is never read),
+    # adopt the new project's shipped .bbl -- it was copied in with the assets.
+    if { [[ -f diff.bcf ]] || grep -q '\\bibdata' diff.aux 2>/dev/null; } \
+        && ! grep -Eq '\\(bibitem|entry)' diff.bbl 2>/dev/null; then
+        local shipped; shipped="$(basename "$main_new" .tex).bbl"
+        if [[ -s "$shipped" ]]; then
+            cp "$shipped" diff.bbl
         fi
     fi
 
