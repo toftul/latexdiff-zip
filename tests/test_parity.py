@@ -10,8 +10,8 @@ suite at the new engine and it must stay green.
 
     python3 tests/test_parity.py              # run against ./latexdiff-zip.py
     python3 -m unittest tests.test_parity     # same, via unittest discovery
-    LDZ_SCRIPT=./latexdiff-zip.sh python3 tests/test_parity.py   # check bash parity
-    LDZ_NETWORK=1 python3 tests/test_parity.py                   # + arXiv cases
+    LDZ_SCRIPT=./some-other-engine tests/test_parity.py         # any engine build
+    LDZ_NETWORK=1 python3 tests/test_parity.py                  # + arXiv cases
     python3 tests/test_parity.py -k fast      # only the fast CLI-contract cases
 
 Fixtures live as plain source trees under tests/cases/<name>/{old,new}/ and are

@@ -105,7 +105,7 @@ sudo firewall-cmd --reload
 
 ## Update after adding new features
 
-When you've pulled (or pushed) new changes — a tweak to `latexdiff-zip.sh`, `webapp/`, or
+When you've pulled (or pushed) new changes — a tweak to `latexdiff-zip.py`, `webapp/`, or
 either `Containerfile` — refresh the running deployment:
 
 ```sh

@@ -6,9 +6,9 @@ under test over the fixture projects in `cases/` and asserts on: exit code, the
 stage/warning log lines the web UI and users rely on, whether a PDF was
 produced, its page count, and probe strings in the extracted text.
 
-It was built for the Python rewrite of `latexdiff-zip.sh`: both engines pass it,
-so it doubles as the regression guard for either. It runs the Python engine by
-default; point `LDZ_SCRIPT` at the bash script to confirm the two still agree.
+It was built to drive the Python rewrite of the original bash engine to parity,
+and now stands as the regression guard for `latexdiff-zip.py`. It runs that
+engine by default; `LDZ_SCRIPT` can point it at any other engine build.
 
 ## Running
 
@@ -16,7 +16,6 @@ default; point `LDZ_SCRIPT` at the bash script to confirm the two still agree.
 python3 tests/test_parity.py            # against ./latexdiff-zip.py (default)
 python3 tests/test_parity.py -k fast    # only the fast CLI-contract cases
 python3 -m unittest tests.test_parity   # via unittest discovery
-LDZ_SCRIPT=./latexdiff-zip.sh python3 tests/test_parity.py   # check bash parity
 ```
 
 Environment knobs:

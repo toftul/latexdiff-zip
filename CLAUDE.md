@@ -15,9 +15,8 @@ It is delivered at three layers, each wrapping the one below:
 
 1. **`latexdiff-zip.py`** — the engine. A single self-contained, **stdlib-only** Python
    program (unpacks archives with `zipfile`/`tarfile`, fetches arXiv over HTTPS with
-   `urllib`); everything else just packages or invokes it. `latexdiff-zip.sh` is the original
-   bash engine, kept byte-for-byte behaviour-compatible (it is the parity oracle's baseline)
-   and slated for removal — **do not add features to it; port to the `.py`.**
+   `urllib`); everything else just packages or invokes it. (It was originally a bash script,
+   `latexdiff-zip.sh`, removed once the port reached parity; the `v1-bash` tag preserves it.)
 2. **`Containerfile`** + **`latexdiff-zip-podman.sh`** — bundle all dependencies so the
    engine runs anywhere via Podman. The `Containerfile` COPYs `latexdiff-zip.py` to
    `/usr/local/bin/latexdiff-zip`.
@@ -41,17 +40,15 @@ It is delivered at three layers, each wrapping the one below:
 
 # Syntax sanity checks
 python3 -m py_compile latexdiff-zip.py  # engine syntax
-bash -n latexdiff-zip.sh                # legacy bash engine (until removed)
 python3 -m py_compile webapp/app.py     # web app syntax
 
 # Behaviour oracle: runs the engine over tests/cases/ fixtures and asserts on
 # the observable contract (exit code, stage/warning log lines, PDF page count,
-# pdftotext probes). Runs the Python engine by default; point LDZ_SCRIPT at the
-# bash script to check the two still agree.
+# pdftotext probes). Runs latexdiff-zip.py by default; LDZ_SCRIPT can point it
+# at any other engine build.
 python3 tests/test_parity.py            # full offline suite (real pdflatex builds)
 python3 tests/test_parity.py -k fast    # fast CLI-contract cases only, no LaTeX
 LDZ_NETWORK=1 python3 tests/test_parity.py       # + real arXiv-fetch cases
-LDZ_SCRIPT=./latexdiff-zip.sh python3 tests/test_parity.py   # check bash parity
 ```
 
 `test_for_diff_old.zip`/`test_for_diff_new.zip` in the repo root are real sample fixtures —
@@ -63,13 +60,13 @@ knobs.
 Rootless Podman **cannot be built or run from inside some sandboxed sessions** (fails with
 "cannot re-exec process to join the existing user namespace"). When that happens, the
 container layers can only be validated by the user running the build on their own machine;
-the bash engine itself can still be exercised directly on the host.
+the engine itself can still be exercised directly on the host.
 
 ## Architecture & non-obvious design decisions
 
-**`latexdiff-zip.sh` pipeline:** extract both (`extract_archive` dispatches on extension —
-`unzip` for `.zip`, `tar -xf` for tar archives, which auto-detects gzip/bzip2/xz; arXiv
-sides are fetched by `fetch_arxiv` instead) → descend
+**`latexdiff-zip.py` pipeline:** extract both (`extract_archive` dispatches on extension —
+`zipfile` for `.zip`, `tarfile` for tar archives, which auto-detects gzip/bzip2/xz; arXiv
+sides are fetched by `fetch_arxiv` over HTTPS with `urllib` instead) → descend
 into a single top-level dir if present → auto-detect the main `.tex` (the one with
 `\documentclass`) → `latexpand` each into one
 flat file → for BibTeX docs, compile each side once + `bibtex` and re-flatten with
@@ -91,16 +88,16 @@ collages into the PDF.
   — there's a long code comment explaining why (commit history shows latexmk was tried and reverted).
 - **The diff compiles against the NEW project's assets only.** Figures that existed solely in
   the old version won't be present at compile time.
-- **bash 3.2 portability (stock macOS).** No `mapfile`/`readarray`; uses portable
-  `while IFS= read` loops instead. Keep new code 3.2-compatible.
+- **Stdlib only, no pip deps.** The engine imports nothing outside the standard library; keep
+  it that way. The LaTeX toolchain and the figure tooling (ImageMagick, pdfunite/gs) are the
+  only external programs, all invoked via `subprocess`.
 
 **Figure comparison (`compare_figures` and helpers):** all of it degrades gracefully when the
 optional deps are missing — never make these hard requirements.
 
-- Figures are matched between versions by **`\label` first, then document order**, via an
-  inline `python3` heredoc (`_match_figures_py`). This is what lets a renamed image file
-  (`plot_v1.pdf` → `plot_v2.pdf`) still be paired. Without python3 it falls back to
-  path-based matching (same filename in both zips).
+- Figures are matched between versions by **`\label` first, then document order**
+  (`match_figures`). This is what lets a renamed image file (`plot_v1.pdf` → `plot_v2.pdf`)
+  still be paired.
 - `_im`/`_im_identify` wrap ImageMagick, preferring v7 `magick` over v6 `convert`/`identify`.
 - Collages are built as PNGs (any source format is rasterised first), then **embedded by
   building a separate standalone appendix PDF and merging it** (`pdfunite`, falling back to

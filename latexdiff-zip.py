@@ -11,13 +11,12 @@ https://arxiv.org/abs/...); its source is then fetched from arxiv.org.
 Usage: latexdiff-zip [-m main.tex] [-M main.tex] [-o output.pdf] [-t TYPE]
                      [-F] [-c DIR] OLD NEW
 
-This is a stdlib-only Python port of the original latexdiff-zip.sh: archives
-are unpacked with zipfile/tarfile and arXiv sources fetched with urllib, so
-unzip/tar/curl are no longer required. It still shells out to the LaTeX
-toolchain (latexdiff, latexpand, pdflatex, bibtex/biber) and, for the optional
-figure diff, to ImageMagick and pdfunite/gs -- all of which degrade gracefully
-when absent, exactly as before. Behaviour (flags, log lines, exit codes) is
-identical to the shell version; tests/test_parity.py is the executable spec.
+The engine is stdlib-only: archives are unpacked with zipfile/tarfile and arXiv
+sources fetched with urllib, so unzip/tar/curl are not required. It shells out
+to the LaTeX toolchain (latexdiff, latexpand, pdflatex, bibtex/biber) and, for
+the optional figure diff, to ImageMagick and pdfunite/gs -- all of which
+degrade gracefully when absent. (This was originally a bash script; the
+`v1-bash` git tag preserves it.) tests/test_parity.py is the executable spec.
 """
 
 import filecmp
