@@ -8,9 +8,9 @@ count, and probe strings in its extracted text. This is the *executable*
 definition of "behaves the same" for the planned Python rewrite -- point the
 suite at the new engine and it must stay green.
 
-    python3 tests/test_parity.py              # run against ./latexdiff-zip.sh
+    python3 tests/test_parity.py              # run against ./latexdiff-zip.py
     python3 -m unittest tests.test_parity     # same, via unittest discovery
-    LDZ_SCRIPT=./latexdiff-zip.py python3 tests/test_parity.py   # phase 2
+    LDZ_SCRIPT=./latexdiff-zip.sh python3 tests/test_parity.py   # check bash parity
     LDZ_NETWORK=1 python3 tests/test_parity.py                   # + arXiv cases
     python3 tests/test_parity.py -k fast      # only the fast CLI-contract cases
 
@@ -33,11 +33,11 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CASES_DIR = os.path.join(ROOT, "tests", "cases")
 
-# Engine under test. Default to the bash script; Phase 2 sets LDZ_SCRIPT to the
-# Python port. A .py target is run through the current interpreter so it needs
-# no execute bit.
-# Absolutised so it resolves regardless of a case's temp working directory.
-SCRIPT = os.path.abspath(os.environ.get("LDZ_SCRIPT", os.path.join(ROOT, "latexdiff-zip.sh")))
+# Engine under test. Defaults to the Python engine; set LDZ_SCRIPT to the bash
+# script to confirm the two still agree. A .py target is run through the current
+# interpreter so it needs no execute bit. Absolutised so it resolves regardless
+# of a case's temp working directory.
+SCRIPT = os.path.abspath(os.environ.get("LDZ_SCRIPT", os.path.join(ROOT, "latexdiff-zip.py")))
 RUN_NETWORK = os.environ.get("LDZ_NETWORK") == "1"
 CASE_TIMEOUT = int(os.environ.get("LDZ_CASE_TIMEOUT", "300"))
 

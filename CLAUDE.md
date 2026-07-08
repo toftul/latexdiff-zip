@@ -9,23 +9,28 @@ A tool that produces a `latexdiff` track-changes PDF between two LaTeX project a
 side-by-side OLD/NEW comparisons of any changed figures. Each side may be a `.zip` or a tar
 archive (`.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`, `.tar.xz`/`.txz`), dispatched on the
 filename extension, and the two sides may differ. Either side may instead be an arXiv id or
-URL (`normalize_arxiv` recognises it; `fetch_arxiv` downloads `arxiv.org/e-print/<id>` via
-curl/wget and handles all three e-print shapes: tarball, gzipped single `.tex`, and pdf-only
-which errors). It is delivered at three layers, each wrapping the one below:
+URL (`normalize_arxiv` recognises it; `fetch_arxiv` downloads `arxiv.org/e-print/<id>` and
+handles all three e-print shapes: tarball, gzipped single `.tex`, and pdf-only which errors).
+It is delivered at three layers, each wrapping the one below:
 
-1. **`latexdiff-zip.sh`** — the engine. A single self-contained bash script; everything
-   else just packages or invokes it.
+1. **`latexdiff-zip.py`** — the engine. A single self-contained, **stdlib-only** Python
+   program (unpacks archives with `zipfile`/`tarfile`, fetches arXiv over HTTPS with
+   `urllib`); everything else just packages or invokes it. `latexdiff-zip.sh` is the original
+   bash engine, kept byte-for-byte behaviour-compatible (it is the parity oracle's baseline)
+   and slated for removal — **do not add features to it; port to the `.py`.**
 2. **`Containerfile`** + **`latexdiff-zip-podman.sh`** — bundle all dependencies so the
-   script runs anywhere via Podman.
+   engine runs anywhere via Podman. The `Containerfile` COPYs `latexdiff-zip.py` to
+   `/usr/local/bin/latexdiff-zip`.
 3. **`Containerfile.web`** + **`webapp/`** + **`latexdiff-zip-web.sh`** — a drag-and-drop
-   web UI whose backend shells out to the CLI inside the container.
+   web UI whose backend shells out to the CLI inside the container. `webapp/app.py` imports
+   `normalize_arxiv` from the engine (one implementation, no mirrored copy).
 
 ## Commands
 
 ```sh
-# Run the script directly (needs host deps: unzip and/or tar, latexdiff, latexpand,
-# pdflatex, bibtex/biber, + optional: ImageMagick, pdfunite/gs, python3)
-./latexdiff-zip.sh [-m old-main.tex] [-M new-main.tex] [-o out.pdf] [-t TYPE] [-F] [-c DIR] OLD NEW
+# Run the engine directly (needs host deps: python3, latexdiff, latexpand,
+# pdflatex, bibtex/biber, + optional: ImageMagick, pdfunite/gs)
+./latexdiff-zip.py [-m old-main.tex] [-M new-main.tex] [-o out.pdf] [-t TYPE] [-F] [-c DIR] OLD NEW
 
 # Containerized CLI (builds image on first use; --build forces rebuild)
 ./latexdiff-zip-podman.sh old.zip new.zip
@@ -35,16 +40,18 @@ which errors). It is delivered at three layers, each wrapping the one below:
 ./latexdiff-zip-web.sh --build      # force rebuild after editing script/app
 
 # Syntax sanity checks
-bash -n latexdiff-zip.sh            # shell syntax
-python3 -m py_compile webapp/app.py # web app syntax
+python3 -m py_compile latexdiff-zip.py  # engine syntax
+bash -n latexdiff-zip.sh                # legacy bash engine (until removed)
+python3 -m py_compile webapp/app.py     # web app syntax
 
 # Behaviour oracle: runs the engine over tests/cases/ fixtures and asserts on
 # the observable contract (exit code, stage/warning log lines, PDF page count,
-# pdftotext probes). Green against the bash engine; the Python rewrite is done
-# when it is green with LDZ_SCRIPT pointed at the .py.
+# pdftotext probes). Runs the Python engine by default; point LDZ_SCRIPT at the
+# bash script to check the two still agree.
 python3 tests/test_parity.py            # full offline suite (real pdflatex builds)
 python3 tests/test_parity.py -k fast    # fast CLI-contract cases only, no LaTeX
-LDZ_NETWORK=1 python3 tests/test_parity.py   # + real arXiv-fetch cases
+LDZ_NETWORK=1 python3 tests/test_parity.py       # + real arXiv-fetch cases
+LDZ_SCRIPT=./latexdiff-zip.sh python3 tests/test_parity.py   # check bash parity
 ```
 
 `test_for_diff_old.zip`/`test_for_diff_new.zip` in the repo root are real sample fixtures —

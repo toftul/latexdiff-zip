@@ -3,7 +3,7 @@
 [← back to README](README.md)
 
 ```sh
-./latexdiff-zip.sh [-m old-main.tex] [-M new-main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] OLD NEW
+./latexdiff-zip.py [-m old-main.tex] [-M new-main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] OLD NEW
 ```
 
 It produces a [`latexdiff`](https://ctan.org/pkg/latexdiff) PDF between two LaTeX project
@@ -22,23 +22,23 @@ Either side may instead be an **arXiv paper**, given as an id with optional vers
 So diffing two arXiv revisions needs no downloads at all:
 
 ```sh
-./latexdiff-zip.sh 1706.03762v1 1706.03762v2
+./latexdiff-zip.py 1706.03762v1 1706.03762v2
 ```
 
 ## Requirements
 
+The engine is `latexdiff-zip.py`, a stdlib-only Python program — it unpacks `.zip`/tar archives
+and fetches arXiv sources over HTTPS itself, so no `unzip`, `tar`, `curl` or `wget` is needed.
 These must be on your `PATH`:
 
-- `unzip` (for `.zip` archives) and/or `tar` (for tar archives)
+- `python3` (3.9+) — the engine itself
 - `latexdiff`
 - `latexpand`
 - `pdflatex`
 - `bibtex` (or `biber`, for biblatex documents)
 
 Optional, for the [figure diff](FIGURES.md) (skipped gracefully if missing): `ImageMagick`,
-`pdfunite`/`gs`, `python3`.
-
-Fetching arXiv ids needs `curl` or `wget` (only required when you actually pass an id).
+`pdfunite`/`gs`.
 
 Don't want to install any of this? Use `./latexdiff-zip-podman.sh` — same options, runs in a
 container.
@@ -59,38 +59,38 @@ container.
 
 ```sh
 # Diff two Overleaf exports, writing diff.pdf beside the new one
-./latexdiff-zip.sh old.zip new.zip
+./latexdiff-zip.py old.zip new.zip
 
 # Diff two arXiv source tarballs
-./latexdiff-zip.sh v1.tar.gz v2.tar.gz
+./latexdiff-zip.py v1.tar.gz v2.tar.gz
 
 # Mix formats: an Overleaf .zip against an arXiv .tar.gz
-./latexdiff-zip.sh overleaf.zip arxiv.tar.gz
+./latexdiff-zip.py overleaf.zip arxiv.tar.gz
 
 # Fetch straight from arXiv: two revisions of a paper, no manual downloads
-./latexdiff-zip.sh 1706.03762v1 1706.03762v2
+./latexdiff-zip.py 1706.03762v1 1706.03762v2
 
 # arXiv URLs (abs/pdf/e-print) and arXiv:<id> references work too, and an
 # arXiv side can be mixed with a local archive
-./latexdiff-zip.sh https://arxiv.org/abs/1706.03762v1 my-revision.zip
+./latexdiff-zip.py https://arxiv.org/abs/1706.03762v1 my-revision.zip
 
 # Pick the main file and output path explicitly
-./latexdiff-zip.sh -m paper.tex -o ~/Desktop/changes.pdf v1.zip v2.zip
+./latexdiff-zip.py -m paper.tex -o ~/Desktop/changes.pdf v1.zip v2.zip
 
 # The two projects' main files have different names
-./latexdiff-zip.sh -m old-main.tex -M new-main.tex v1.zip v2.zip
+./latexdiff-zip.py -m old-main.tex -M new-main.tex v1.zip v2.zip
 
 # Both versions live in ONE archive (e.g. old.tex + new.tex side by side):
 # pass the same archive twice and name the main file(s). Naming one side is
 # enough — the other is auto-detected by excluding the one you named.
-./latexdiff-zip.sh -m old.tex -M new.tex paper.zip paper.zip
-./latexdiff-zip.sh -M new.tex paper.zip paper.zip      # -m auto-detects old.tex
+./latexdiff-zip.py -m old.tex -M new.tex paper.zip paper.zip
+./latexdiff-zip.py -M new.tex paper.zip paper.zip      # -m auto-detects old.tex
 
 # Different markup style
-./latexdiff-zip.sh -t CCHANGEBAR old.zip new.zip
+./latexdiff-zip.py -t CCHANGEBAR old.zip new.zip
 
 # Skip collages in the PDF, but save them as PNGs in a folder
-./latexdiff-zip.sh -F -c changed_figures old.zip new.zip
+./latexdiff-zip.py -F -c changed_figures old.zip new.zip
 ```
 
 ## Install (optional)
@@ -98,8 +98,8 @@ container.
 To run it as `latexdiff-zip` from anywhere:
 
 ```sh
-chmod +x latexdiff-zip.sh
-sudo cp latexdiff-zip.sh /usr/local/bin/latexdiff-zip
+chmod +x latexdiff-zip.py
+sudo cp latexdiff-zip.py /usr/local/bin/latexdiff-zip
 ```
 
 ## Run in a container
@@ -126,10 +126,11 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
 
 ## How it works
 
-1. Extracts both archives (`.zip` via `unzip`, tar archives via `tar`); if an archive has a
-   single top-level folder, descends into it. An arXiv side is first fetched from
-   `arxiv.org/e-print/<id>` (a tarball, or a gzipped single `.tex` for one-file submissions;
-   pdf-only submissions have no source and fail with a clear error).
+1. Extracts both archives (Python's `zipfile` for `.zip`, `tarfile` for tar archives, which
+   auto-detects gzip/bzip2/xz); if an archive has a single top-level folder, descends into it.
+   An arXiv side is first fetched from `arxiv.org/e-print/<id>` (a tarball, or a gzipped single
+   `.tex` for one-file submissions; pdf-only submissions have no source and fail with a clear
+   error).
 2. Detects each project's main file independently (the `.tex` with `\documentclass`;
    override with `-m` for the old project, `-M` for the new).
 3. Flattens each project into one file with `latexpand --keep-comments`.

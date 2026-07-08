@@ -16,17 +16,17 @@ a diff PDF back.
 
 ## Run it yourself
 
-### **CLI** — needs $\LaTeX$ installed in the system:
+### **CLI** — needs $\LaTeX$ and `python3` installed in the system:
 
 Download script
 ```sh
-curl -O https://raw.githubusercontent.com/toftul/latexdiff-zip/main/latexdiff-zip.sh
-chmod +x latexdiff-zip.sh
+curl -O https://raw.githubusercontent.com/toftul/latexdiff-zip/main/latexdiff-zip.py
+chmod +x latexdiff-zip.py
 ```
 Run
 ```sh
-./latexdiff-zip.sh old.zip new.zip
-./latexdiff-zip.sh 1706.03762v1 1706.03762v2   # straight from arXiv
+./latexdiff-zip.py old.zip new.zip
+./latexdiff-zip.py 1706.03762v1 1706.03762v2   # straight from arXiv
 ```
 
 See [USAGE.md](USAGE.md) for all CLI flags and more examples. 

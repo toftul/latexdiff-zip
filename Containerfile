@@ -1,15 +1,16 @@
 # Containerfile for latexdiff-zip.
 #
 # Bundles every dependency (TeX Live, latexdiff/latexpand, ImageMagick,
-# Ghostscript, poppler, python3) so the script runs identically on any host.
+# Ghostscript, poppler, python3) so the engine runs identically on any host.
 #
 # Build:  podman build -t latexdiff-zip .
 # Run:    podman run --rm -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
 #
-# The official TeX Live image already ships latexdiff, latexpand, pdflatex,
-# bibtex, biber, tar and gzip; we add the figure-comparison tooling, the extra
-# archive extractors (zip, plus bzip2/xz so every tar variant unpacks), and
-# curl so arXiv ids can be fetched.
+# The engine is latexdiff-zip.py, a stdlib-only Python program: it unpacks zip
+# and tar archives and fetches arXiv sources over HTTPS itself, so no unzip,
+# tar, bzip2/xz or curl is needed. The official TeX Live image already ships
+# latexdiff, latexpand, pdflatex, bibtex and biber; we add python3 (the engine),
+# the figure-comparison tooling, and ca-certificates for HTTPS verification.
 FROM texlive/texlive:latest
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,10 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ghostscript \
         poppler-utils \
         python3 \
-        unzip \
-        bzip2 \
-        xz-utils \
-        curl \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -32,7 +29,7 @@ RUN for f in /etc/ImageMagick-6/policy.xml /etc/ImageMagick-7/policy.xml; do \
         fi; \
     done
 
-COPY latexdiff-zip.sh /usr/local/bin/latexdiff-zip
+COPY latexdiff-zip.py /usr/local/bin/latexdiff-zip
 RUN chmod +x /usr/local/bin/latexdiff-zip
 
 # Default to a world-writable HOME so TeX can write its caches under any UID

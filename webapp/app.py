@@ -6,6 +6,7 @@ background job, streams its log to the browser live via Server-Sent Events,
 and serves the resulting diff PDF when it is ready.
 """
 
+import importlib.util
 import os
 import re
 import shutil
@@ -39,17 +40,34 @@ def _archive_ext(filename):
     return ""
 
 
-# New-style arXiv ids (YYMM.NNNNN) or old-style ones (archive.SC/YYMMNNN),
-# each with an optional vN suffix.
+# Reuse the engine's arXiv id/URL normaliser so there is one implementation,
+# not a copy that can drift. The engine is latexdiff-zip.py: the repo-local file
+# in dev, or the installed `latexdiff-zip` on PATH inside the container.
+def _load_normalize_arxiv():
+    here = os.path.dirname(os.path.abspath(__file__))
+    for path in (os.path.normpath(os.path.join(here, "..", "latexdiff-zip.py")),
+                 shutil.which("latexdiff-zip")):
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            spec = importlib.util.spec_from_file_location("ldz_engine", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)   # import-only: the engine guards main()
+            fn = getattr(mod, "normalize_arxiv", None)
+            if callable(fn):
+                return fn
+        except Exception:
+            continue
+    return None
+
+
+# Fallback used only if the engine file can't be located/imported, so arXiv
+# validation never hard-fails. Kept minimal; the engine is the source of truth.
 _ARXIV_ID_RE = re.compile(r"(\d{4}\.\d{4,5}|[a-z-]+(\.[A-Z]{2})?/\d{7})(v\d+)?")
 
 
-def _arxiv_id(raw):
-    """Normalise an arXiv reference (bare id, arXiv:<id>, or arxiv.org URL) to
-    a bare id like 2401.12345v2, or return None if it doesn't look like one.
-    Mirrors normalize_arxiv() in latexdiff-zip.sh; strict validation also keeps
-    the value safe to pass to the CLI (it can never start with '-' or '/')."""
-    s = (raw or "").strip().split("?", 1)[0]
+def _fallback_arxiv_id(raw):
+    s = (raw or "").split("?", 1)[0]
     s = re.sub(r"^https?://", "", s)
     s = re.sub(r"^(www\.|export\.)", "", s)
     m = re.match(r"arxiv\.org/[^/]+/(.+)", s, re.IGNORECASE)
@@ -58,6 +76,9 @@ def _arxiv_id(raw):
     s = re.sub(r"^arxiv:", "", s, flags=re.IGNORECASE)
     s = re.sub(r"\.pdf$", "", s, flags=re.IGNORECASE)
     return s if _ARXIV_ID_RE.fullmatch(s) else None
+
+
+normalize_arxiv = _load_normalize_arxiv() or _fallback_arxiv_id
 
 # How long a single build is allowed to run before we give up.
 BUILD_TIMEOUT = int(os.environ.get("LDZ_TIMEOUT", "600"))
@@ -167,7 +188,7 @@ def create_job():
                 ), 400
             sides.append(("file", upload, ext))
         elif raw_id.strip():
-            arxiv = _arxiv_id(raw_id)
+            arxiv = normalize_arxiv(raw_id.strip())
             if not arxiv:
                 return jsonify(
                     error=f"The {label} arXiv reference “{raw_id.strip()}” doesn't "
