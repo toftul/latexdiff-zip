@@ -116,10 +116,9 @@ def _cleanup_old_jobs(max_age=3600):
         pass
 
 
-def _run_build(job_dir, cmd):
-    """Run the CLI, streaming combined output into log.txt, then record status."""
+def _build(job_dir, cmd):
+    """Run the CLI, streaming combined output into log.txt; return DONE/FAIL."""
     log_path = os.path.join(job_dir, "log.txt")
-    status_path = os.path.join(job_dir, "status")
     out_path = os.path.join(job_dir, "diff.pdf")
 
     with open(log_path, "w", buffering=1) as log:
@@ -159,8 +158,30 @@ def _run_build(job_dir, cmd):
             log.write(f"\n!! build failed (exit code {proc.returncode}), no PDF produced\n")
             status = "FAIL"
 
-    with open(status_path, "w") as f:
-        f.write(status)
+    return status
+
+
+def _run_build(job_dir, cmd):
+    """Run one build and *always* leave a status behind.
+
+    The SSE stream in job_events polls the status file and only stops on
+    DONE/FAIL, so a build thread that died before writing one -- the CLI
+    missing from PATH, a full disk, anything raising out of _build -- would
+    leave the browser watching a spinner that never resolves. Record the
+    failure instead, and put the reason in the log the UI shows."""
+    status = "FAIL"
+    try:
+        status = _build(job_dir, cmd)
+    except Exception as exc:
+        _log(f"job {os.path.basename(job_dir)} crashed: {exc!r}")
+        try:
+            with open(os.path.join(job_dir, "log.txt"), "a") as log:
+                log.write(f"\n!! build could not run: {exc}\n")
+        except OSError:
+            pass
+    finally:
+        with open(os.path.join(job_dir, "status"), "w") as f:
+            f.write(status)
     _log(f"job {os.path.basename(job_dir)} -> {status}")
 
 

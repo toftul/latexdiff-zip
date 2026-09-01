@@ -73,3 +73,18 @@ not-an-archive) and ends with `test_agrees_with_engine`, the drift guard:
 `mains.candidates()` intentionally does not call the engine, so for every
 fixture above it asserts that a single candidate is what `detect_main` returns,
 and that zero or several is exactly when `detect_main` refuses.
+
+## `test_webjob.py`
+
+A third small suite, for the web backend's job bookkeeping (`webapp/app.py`).
+Also dependency-free -- Flask is stubbed out at import, so no route is
+exercised -- and runs instantly:
+
+```sh
+python3 tests/test_webjob.py
+```
+
+It pins the one guarantee the browser depends on: `_run_build` always leaves a
+`DONE`/`FAIL` status behind, including when the build cannot start at all. The
+SSE stream ends only on that file, so a status that never appears is a page
+that spins forever.

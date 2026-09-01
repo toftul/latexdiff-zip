@@ -46,6 +46,10 @@ python3 -m py_compile webapp/app.py webapp/mains.py   # web app syntax
 # the drift guard tying webapp/mains.py to the engine's detect_main.
 python3 tests/test_mains.py
 
+# Web backend job bookkeeping: every build ends in a DONE/FAIL status, so the
+# SSE stream can't leave the page spinning. Flask is stubbed; instant.
+python3 tests/test_webjob.py
+
 # Behaviour oracle: runs the engine over tests/cases/ fixtures and asserts on
 # the observable contract (exit code, stage/warning log lines, PDF page count,
 # pdftotext probes). Runs latexdiff-zip.py by default; LDZ_SCRIPT can point it
