@@ -56,3 +56,19 @@ dir, so runs never dirty the fixtures.
 
 The two network-only cases (`arxiv_natbib`, `arxiv_oldstyle_selfdiff`) take
 arXiv ids directly and are not stored as fixtures.
+
+## `test_mains.py`
+
+A separate, much smaller suite for `webapp/mains.py` — the archive scan that
+fills the web UI's main-.tex dropdowns. Needs neither Flask nor a LaTeX
+toolchain and runs in about a second:
+
+```sh
+python3 tests/test_mains.py
+```
+
+It covers the archive shapes (flat, single top-level folder, tar.gz, corrupt,
+not-an-archive) and ends with `test_agrees_with_engine`, the drift guard:
+`mains.candidates()` intentionally does not call the engine, so for every
+fixture above it asserts that a single candidate is what `detect_main` returns,
+and that zero or several is exactly when `detect_main` refuses.

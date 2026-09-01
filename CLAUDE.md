@@ -40,7 +40,11 @@ It is delivered at three layers, each wrapping the one below:
 
 # Syntax sanity checks
 python3 -m py_compile latexdiff-zip.py  # engine syntax
-python3 -m py_compile webapp/app.py     # web app syntax
+python3 -m py_compile webapp/app.py webapp/mains.py   # web app syntax
+
+# Web-only unit tests for the main-.tex scan (no Flask, no LaTeX, ~1s). Includes
+# the drift guard tying webapp/mains.py to the engine's detect_main.
+python3 tests/test_mains.py
 
 # Behaviour oracle: runs the engine over tests/cases/ fixtures and asserts on
 # the observable contract (exit code, stage/warning log lines, PDF page count,
@@ -124,6 +128,21 @@ streams the live log via Server-Sent Events; `GET /jobs/<id>/pdf` serves the res
 has its own `LDZ_TIMEOUT` watchdog (default 600s). gunicorn therefore runs **one threaded worker
 with `--timeout 0`** so the stream, the build, and the download share process state and long
 builds don't trip the worker watchdog — keep it single-worker.
+
+**Main-.tex suggestions (`webapp/mains.py` + `POST /inspect`):** picking an archive in the UI
+scans it (`candidates()` reads the entry list and the top-level `.tex` members straight out of
+the upload stream — nothing is unpacked or saved) and fills each side's main-.tex dropdown, so
+an archive with several `\documentclass` files is resolved by clicking rather than by a failed
+build and a typed filename. Two rules to keep:
+
+- **It is not a call into the engine, deliberately.** `detect_main` takes an extracted directory,
+  returns exactly one name, and `die()`s on ambiguity; the UI needs an un-extracted archive and
+  treats "several" as the answer worth showing. `latexdiff-zip.py` stays untouched by this
+  feature — the mirrored rule is pinned instead by `test_agrees_with_engine` in
+  `tests/test_mains.py`, which asserts the two agree over every fixture.
+- **Never be more permissive than the engine.** Suggesting a file the engine can't then use is
+  worse than suggesting nothing, so `candidates()` returns `[]` on anything it can't read and
+  the UI silently falls back to auto-detect plus the free-text box ("Other…").
 
 ## Constraints to respect
 

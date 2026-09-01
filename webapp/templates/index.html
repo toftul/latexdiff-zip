@@ -99,6 +99,10 @@
   .field label strong.old { color: var(--old); }
   .field label strong.new { color: var(--new); }
   .field label .dim { font-weight: 400; opacity: .85; }
+  /* Status line under a main-.tex picker: what the archive scan found, or a
+     nudge when the archive is ambiguous and the build would otherwise fail. */
+  .field .note { font-size: .78rem; color: var(--muted); min-height: 1.1em; }
+  .field .note.warn { color: var(--old); font-weight: 600; }
   .check { flex-direction: row; align-items: center; gap: .5rem; }
   /* Round launch button that slowly morphs its outline — a smooth parametric
      "blob" via animated border-radius. Calm at rest; a touch livelier (and
@@ -225,16 +229,33 @@
                autocomplete="off" spellcheck="false" aria-label="NEW version arXiv ID">
       </div>
 
-      <details>
+      <details id="options">
         <summary>Options</summary>
+        <!-- Main .tex per side. The <select> is what you click; the text input
+             keeps the form field name (and is revealed by "Other…"), so what
+             gets submitted is exactly what it always was. -->
         <div class="field-row">
           <div class="field">
-            <label for="main_tex_old"><strong class="old">OLD</strong> main .tex <span class="dim">— blank = auto-detect</span></label>
-            <input type="text" id="main_tex_old" name="main_tex_old" placeholder="auto-detect">
+            <label for="main_pick_old"><strong class="old">OLD</strong> main .tex</label>
+            <select id="main_pick_old" data-side="old">
+              <option value="">Auto-detect</option>
+              <option value="!other">Other…</option>
+            </select>
+            <input type="text" id="main_tex_old" name="main_tex_old"
+                   placeholder="type a filename" autocomplete="off" spellcheck="false"
+                   aria-label="OLD main .tex filename" hidden>
+            <span class="note" id="main_note_old"></span>
           </div>
           <div class="field">
-            <label for="main_tex_new"><strong class="new">NEW</strong> main .tex <span class="dim">— blank = auto-detect</span></label>
-            <input type="text" id="main_tex_new" name="main_tex_new" placeholder="auto-detect">
+            <label for="main_pick_new"><strong class="new">NEW</strong> main .tex</label>
+            <select id="main_pick_new" data-side="new">
+              <option value="">Auto-detect</option>
+              <option value="!other">Other…</option>
+            </select>
+            <input type="text" id="main_tex_new" name="main_tex_new"
+                   placeholder="type a filename" autocomplete="off" spellcheck="false"
+                   aria-label="NEW main .tex filename" hidden>
+            <span class="note" id="main_note_new"></span>
           </div>
         </div>
         <div class="field">
@@ -308,14 +329,101 @@
     });
   });
 
+  // ---- main .tex pickers --------------------------------------------------
+  // Chosen by clicking, not typing: as soon as an archive is selected we ask
+  // the server which of its top-level .tex files carry \documentclass, and
+  // offer those. "Other…" falls back to the text box for a name the scan can't
+  // see (e.g. a main file inside a subfolder).
+  var OTHER = '!other';
+  var scanning = { old: null, new: null };   // in-flight AbortControllers
+
+  function pickerParts(side) {
+    return {
+      sel: document.getElementById('main_pick_' + side),
+      txt: document.getElementById('main_tex_' + side),
+      note: document.getElementById('main_note_' + side),
+    };
+  }
+
+  function setNote(side, text, warn) {
+    var note = pickerParts(side).note;
+    note.textContent = text || '';
+    note.classList.toggle('warn', !!warn);
+  }
+
+  // Rebuild a side's option list and reset it to Auto-detect. A new archive
+  // makes any previous choice meaningless, so this always starts clean.
+  function setCandidates(side, list) {
+    var p = pickerParts(side);
+    p.sel.innerHTML = '';
+    [['', 'Auto-detect']].concat(list.map(function (n) { return [n, n]; }))
+      .concat([[OTHER, 'Other…']])
+      .forEach(function (pair) {
+        var o = document.createElement('option');
+        o.value = pair[0];
+        o.textContent = pair[1];
+        p.sel.appendChild(o);
+      });
+    p.sel.value = '';
+    p.txt.value = '';
+    p.txt.hidden = true;
+  }
+
+  function scanArchive(side, file) {
+    if (scanning[side]) scanning[side].abort();
+    setCandidates(side, []);
+    if (!file) { setNote(side, ''); return; }
+
+    var ac = new AbortController();
+    scanning[side] = ac;
+    setNote(side, 'scanning archive…');
+
+    var fd = new FormData();
+    fd.append('archive', file);
+    fetch('/inspect', { method: 'POST', body: fd, signal: ac.signal })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (ac.signal.aborted) return;
+        var list = (d && d.candidates) || [];
+        setCandidates(side, list);
+        if (list.length > 1) {
+          // The engine refuses to guess between these, so the build would fail
+          // on auto-detect. Surface it now instead of in the log afterwards.
+          setNote(side, list.length + ' possible main files — pick one', true);
+          document.getElementById('options').open = true;
+        } else if (list.length === 1) {
+          setNote(side, 'found ' + list[0]);
+        } else {
+          setNote(side, '');   // nothing found: auto-detect, exactly as before
+        }
+      })
+      .catch(function () { if (!ac.signal.aborted) setNote(side, ''); });
+  }
+
+  ['old', 'new'].forEach(function (side) {
+    var p = pickerParts(side);
+    p.sel.addEventListener('change', function () {
+      if (p.sel.value === OTHER) {
+        p.txt.hidden = false;
+        p.txt.focus();
+      } else {
+        p.txt.hidden = true;
+        p.txt.value = p.sel.value;   // the hidden input is what submits
+      }
+    });
+  });
+
   // Each side takes an archive OR an arXiv id: picking a file clears that
   // side's arXiv field, and typing an id clears the chosen file.
-  [['drop-old', 'old_zip', 'old_arxiv'], ['drop-new', 'new_zip', 'new_arxiv']].forEach(function (t) {
-    var zone = document.getElementById(t[0]);
-    var file = document.forms[0][t[1]];
-    var text = document.forms[0][t[2]];
+  [['old', 'drop-old', 'old_zip', 'old_arxiv'],
+   ['new', 'drop-new', 'new_zip', 'new_arxiv']].forEach(function (t) {
+    var side = t[0];
+    var zone = document.getElementById(t[1]);
+    var file = document.forms[0][t[2]];
+    var text = document.forms[0][t[3]];
     file.addEventListener('change', function () {
       if (file.files.length) { text.value = ''; text.classList.remove('ready'); }
+      scanArchive(side, file.files[0] || null);
     });
     text.addEventListener('input', function () {
       var has = text.value.trim() !== '';
@@ -326,6 +434,8 @@
         var hint = zone.querySelector('.hint');
         hint.textContent = hint.dataset.default;
       }
+      // An arXiv side has no local archive to scan; drop any stale suggestions.
+      if (has) { scanArchive(side, null); }
     });
   });
 
@@ -525,6 +635,9 @@
     });
     document.querySelectorAll('.arxiv-row input').forEach(function (i) {
       i.classList.remove('ready');   // form.reset() already cleared the value
+    });
+    ['old', 'new'].forEach(function (side) {   // form.reset() leaves the
+      scanArchive(side, null);                 // injected options in place
     });
     result.style.display = 'none';
     logWrap.style.display = 'none';

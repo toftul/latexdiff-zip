@@ -19,6 +19,8 @@ import uuid
 
 from flask import Flask, Response, abort, jsonify, render_template, request, send_file
 
+import mains
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB per request
 
@@ -165,6 +167,28 @@ def _run_build(job_dir, cmd):
 @app.get("/")
 def index():
     return render_template("index.html", diff_types=DIFF_TYPES)
+
+
+@app.post("/inspect")
+def inspect():
+    """Name the plausible main .tex files in an uploaded archive.
+
+    Called as soon as a file is chosen, so the UI can offer them in a dropdown
+    instead of asking the user to type a filename they cannot see. Nothing is
+    saved: the upload stream is read in place and dropped."""
+    upload = request.files.get("archive")
+    if not upload or not upload.filename:
+        return jsonify(error="No archive was sent."), 400
+    if not _archive_ext(upload.filename):
+        return jsonify(
+            error="The upload must be a .zip or a tar archive "
+                  "(.tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz)."
+        ), 400
+
+    found = mains.candidates(upload.stream)
+    _log(f"inspect {upload.filename}: {len(found)} candidate main(s)"
+         + (f" ({', '.join(found)})" if found else ""))
+    return jsonify(candidates=found)
 
 
 @app.post("/jobs")
