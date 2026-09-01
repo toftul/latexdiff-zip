@@ -325,7 +325,12 @@
       zone.addEventListener(e, function (ev) { ev.preventDefault(); zone.classList.remove('over'); });
     });
     zone.addEventListener('drop', function (ev) {
-      if (ev.dataTransfer.files.length) { input.files = ev.dataTransfer.files; show(); }
+      if (!ev.dataTransfer.files.length) return;
+      input.files = ev.dataTransfer.files;
+      // Assigning .files never fires `change`, so dispatch it: otherwise every
+      // change listener -- the filename hint, the arXiv mutual exclusion, the
+      // main-.tex scan -- is skipped on a drop and only the file dialog works.
+      input.dispatchEvent(new Event('change'));
     });
   });
 
