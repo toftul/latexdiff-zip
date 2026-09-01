@@ -4,7 +4,10 @@ An executable definition of what "the engine behaves correctly" means, pinned
 to the observable contract rather than the implementation. It runs the engine
 under test over the fixture projects in `cases/` and asserts on: exit code, the
 stage/warning log lines the web UI and users rely on, whether a PDF was
-produced, its page count, and probe strings in the extracted text.
+produced, its page count, probe strings in the extracted text, and how many
+images it embeds (`pdfimages -list` -- the only outside evidence that a
+*deleted* figure was actually drawn, since a missing file only shows up in
+pdflatex's log).
 
 It was built to drive the Python rewrite of the original bash engine to parity,
 and now stands as the regression guard for `latexdiff-zip.py`. It runs that
@@ -49,6 +52,7 @@ extract path of either engine.
 | `figure-graphicspath` | `\graphicspath{{figs/}}` resolution — a bare name and an explicit `figs/` prefix both resolve (2 changed). |
 | `figure-visually-identical` | A byte-different but pixel-identical figure is dropped (no change reported). |
 | `figure-added` / `figure-removed` | A one-sided figure gets a `NEW ONLY` / `OLD ONLY` page. |
+| `figure-renamed` | A figure renamed under `\graphicspath{{figs/}}`: the old file is copied in, so the deleted `\includegraphics` still renders. |
 | `figure-multipanel` | Three `\includegraphics` under one `\label`: panels pair one-to-one, so only the edited panel is reported (1 changed, none added/removed). |
 
 Fixtures hold only source (`.tex`/`.bib`, and a shipped `.bbl` where that is the

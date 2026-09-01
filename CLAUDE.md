@@ -94,8 +94,15 @@ collages into the PDF.
   then stop too early, leaving `??` refs. The fixed `pdflatex → bib backend → pdflatex ×2`
   sequence ignores non-zero exits and always converges. Don't "simplify" this back to latexmk
   — there's a long code comment explaining why (commit history shows latexmk was tried and reverted).
-- **The diff compiles against the NEW project's assets only.** Figures that existed solely in
-  the old version won't be present at compile time.
+- **The diff compiles against the NEW project's assets, plus old-only figures.** latexdiff
+  runs with `--graphics-markup=both` so a deleted `\includegraphics` stays live (drawn at
+  half scale, crossed out) instead of being commented into a `%DIFDELCMD` line — the default
+  `new-only` level makes a dropped figure vanish from the diff entirely. `copy_old_figures`
+  then fills in every old reference the build dir cannot already resolve, filed under the
+  path the deleted command asks for; a NEW asset of the same name always wins. The build
+  ladder has a third rung for this: if the deleted-figure markup makes a document unbuildable
+  (latexdiff's manual warns about "Misplaced \noalign" in tables), the diff is redone without
+  it.
 - **Stdlib only, no pip deps.** The engine imports nothing outside the standard library; keep
   it that way. The LaTeX toolchain and the figure tooling (ImageMagick, pdfunite/gs) are the
   only external programs, all invoked via `subprocess`.

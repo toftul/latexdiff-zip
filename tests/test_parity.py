@@ -43,6 +43,7 @@ CASE_TIMEOUT = int(os.environ.get("LDZ_CASE_TIMEOUT", "300"))
 
 HAVE_PDFINFO = shutil.which("pdfinfo") is not None
 HAVE_PDFTOTEXT = shutil.which("pdftotext") is not None
+HAVE_PDFIMAGES = shutil.which("pdfimages") is not None
 
 
 def script_argv(args):
@@ -76,6 +77,15 @@ def pdf_pages(path):
     return int(m.group(1)) if m else None
 
 
+def pdf_images(path):
+    """How many images the PDF embeds. The only way to tell from the outside
+    that a *deleted* figure was drawn: its file has to have been found at
+    compile time, and pdflatex reports a missing one only in its log."""
+    out = subprocess.run(["pdfimages", "-list", path], stdout=subprocess.PIPE,
+                         stderr=subprocess.DEVNULL, text=True).stdout
+    return sum(1 for line in out.splitlines() if re.match(r"\s*\d+\s+\d+\s+\w", line))
+
+
 def pdf_text(path):
     return subprocess.run(["pdftotext", path, "-"], stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL, text=True).stdout
@@ -89,8 +99,8 @@ class Case:
     def __init__(self, name, *, old_dir=None, new_dir=None, both_dir=None,
                  same_archive=False, literal=None, unsupported_file=False,
                  args=(), exit=0, need_lines=(), forbid_lines=(),
-                 want_pdf=True, min_pages=1, probe_present=(), probe_absent=(),
-                 fast=False, network=False):
+                 want_pdf=True, min_pages=1, min_images=0,
+                 probe_present=(), probe_absent=(), fast=False, network=False):
         self.name = name
         self.old_dir = old_dir
         self.new_dir = new_dir
@@ -104,6 +114,7 @@ class Case:
         self.forbid_lines = forbid_lines
         self.want_pdf = want_pdf
         self.min_pages = min_pages
+        self.min_images = min_images
         self.probe_present = probe_present
         self.probe_absent = probe_absent
         self.fast = fast
@@ -200,6 +211,24 @@ CASES = [
          need_lines=["figure removed", "figure diff: 1 removed"],
          forbid_lines=["figure changed", "figure added"], min_pages=2),
 
+    # A figure only the old version had must still be *drawn* (crossed out at
+    # reduced scale), not silently dropped: latexdiff keeps the deleted
+    # \includegraphics live and the engine copies the old file in for it.
+    # -F keeps the appendix out, so the image count is the body's alone: the
+    # surviving figure plus the deleted one.
+    Case("figure_deleted_renders",
+         old_dir="figure-removed/old", new_dir="figure-removed/new",
+         args=["-F"], need_lines=["old-only figures: 1 copied"],
+         min_pages=1, min_images=2),
+
+    # The same, for a renamed figure under \graphicspath{{figs/}}: the old file
+    # is filed under the bare name the deleted command asks for, which LaTeX
+    # finds in the document directory even with a graphics path set.
+    Case("figure_renamed_graphicspath",
+         old_dir="figure-renamed/old", new_dir="figure-renamed/new",
+         args=["-F"], need_lines=["old-only figures: 1 copied"],
+         min_pages=1, min_images=2),
+
     # Three \includegraphics under a single \label: panels must pair
     # one-to-one, so only the edited middle panel is reported. Pairing every
     # new panel with the first old ref instead gave 2 bogus changes + 2 bogus
@@ -249,6 +278,12 @@ def _make_test(case):
                     self.assertGreaterEqual(
                         pages, case.min_pages,
                         f"only {pages} pages, want >= {case.min_pages}{ctx}")
+                if HAVE_PDFIMAGES and case.min_images:
+                    images = pdf_images(out_pdf)
+                    self.assertGreaterEqual(
+                        images, case.min_images,
+                        f"only {images} image(s) embedded, want >= "
+                        f"{case.min_images}{ctx}")
                 if HAVE_PDFTOTEXT and (case.probe_present or case.probe_absent):
                     text = pdf_text(out_pdf)
                     for needle in case.probe_present:

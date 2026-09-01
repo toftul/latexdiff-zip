@@ -37,6 +37,14 @@ import zipfile
 UA = "latexdiff-zip (+https://github.com/toftul/latexdiff-zip)"
 DEVNULL = subprocess.DEVNULL
 
+# latexdiff's default graphics markup ("new-only") comments deleted
+# \includegraphics commands away, so a figure the new version dropped just
+# vanishes from the diff. "both" keeps them live -- drawn at reduced scale with
+# a red cross -- which is why the build also needs the old files
+# (copy_old_figures). Given up on the last retry: latexdiff's own manual warns
+# it can provoke "Misplaced \noalign" on some tables.
+GRAPHICS_MARKUP = "--graphics-markup=both"
+
 # Image extensions tried when resolving an \includegraphics path with no suffix.
 RESOLVE_EXTS = ("", ".png", ".jpg", ".jpeg", ".pdf", ".eps", ".ps", ".svg",
                 ".tiff", ".bmp")
@@ -685,6 +693,46 @@ def match_figures(old_root, new_root, old_flat, new_flat):
     return changed, added, removed
 
 
+def copy_old_figures(old_root, old_flat, new_flat, build):
+    """Put the OLD version's figures within reach of the compile.
+
+    The build dir holds the new project's assets, so an \\includegraphics that
+    only the old version had -- a figure dropped or renamed since -- would come
+    up missing. latexdiff keeps those commands live (see GRAPHICS_MARKUP) to
+    draw the deleted figure crossed out, so the file has to be there.
+
+    Each old reference the build cannot already satisfy is copied in under the
+    name the deleted command asks for. A reference that *does* resolve is left
+    alone, so the new project's asset always wins over an old namesake.
+    Returns how many were copied."""
+    old_text = read_text(old_flat)
+    old_gp = _parse_graphicspath(old_text)
+    new_gp = _parse_graphicspath(read_text(new_flat))
+    n = 0
+    for ref in _parse_refs(old_text):
+        if _resolve(ref["path"], build, new_gp) is not None:
+            continue                              # the new project provides it
+        src = _resolve(ref["path"], old_root, old_gp)
+        if src is None:
+            continue
+        # File it under the reference as written (plus the resolved suffix when
+        # the reference has none): LaTeX looks in the document directory
+        # whatever \graphicspath says, so this resolves either way.
+        rel = ref["path"]
+        if not os.path.splitext(rel)[1]:
+            rel += os.path.splitext(src)[1]
+        dst = os.path.join(build, rel)
+        if os.path.exists(dst):
+            continue
+        try:
+            os.makedirs(os.path.dirname(dst) or build, exist_ok=True)
+            shutil.copy(src, dst)
+        except OSError:
+            continue
+        n += 1
+    return n
+
+
 def _emit_single(refs, verb, label, color, figcmp, collages, manifest):
     """One single-panel page per one-sided figure. Returns how many were added."""
     count = 0
@@ -1006,14 +1054,25 @@ def main(argv):
                 warn("warning: could not generate a .bbl; bibliography changes will not show in the diff")
         # ---- End bibliography expansion ----------------------------------
 
-        say(f"running latexdiff (type={diff_type})...")
         diff_tex = os.path.join(build, "diff.tex")
         latexdiff_log = os.path.join(tmp, "latexdiff.log")
-        with open(diff_tex, "wb") as out, open(latexdiff_log, "wb") as errf:
-            ld = subprocess.run(
-                ["latexdiff", f"--type={diff_type}", "--append-safecmd=label",
-                 old_flat, new_flat], stdout=out, stderr=errf)
-        if not (os.path.isfile(diff_tex) and os.path.getsize(diff_tex) > 0):
+
+        def run_latexdiff(old_f, new_f, extra):
+            with open(diff_tex, "wb") as out, open(latexdiff_log, "ab") as errf:
+                return subprocess.run(
+                    ["latexdiff", f"--type={diff_type}", "--append-safecmd=label",
+                     *extra, old_f, new_f], stdout=out, stderr=errf)
+
+        def diff_written():
+            return os.path.isfile(diff_tex) and os.path.getsize(diff_tex) > 0
+
+        say(f"running latexdiff (type={diff_type})...")
+        gfx = [GRAPHICS_MARKUP]
+        ld = run_latexdiff(old_flat, new_flat, gfx)
+        if not diff_written():
+            gfx = []                              # latexdiff too old to know it
+            ld = run_latexdiff(old_flat, new_flat, gfx)
+        if not diff_written():
             warn(f"latexdiff failed (status {ld.returncode}). Log:")
             warn(read_text(latexdiff_log))
             sys.exit(1)
@@ -1030,17 +1089,29 @@ def main(argv):
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copy(full, dst)
 
+        # Figures the new version dropped or renamed: the deleted
+        # \includegraphics is live in the diff, so its file must be here too.
+        if gfx:
+            n_old = copy_old_figures(old_root, old_flat, new_flat, build)
+            if n_old:
+                say(f"old-only figures: {n_old} copied so deletions render")
+
         say("building PDF...")
+        cur_old, cur_new = old_flat, new_flat
         ok = build_diff_pdf(build, main_new)
         # latexdiff markup inside a formatted bibliography occasionally produces
         # unbuildable TeX; redo the diff from the unexpanded flats (giving up
         # only the bibliography markup) rather than fail.
         if not ok and bbl_expanded:
             warn("warning: build failed with expanded bibliographies; retrying without them")
-            with open(diff_tex, "wb") as out, open(latexdiff_log, "ab") as errf:
-                subprocess.run(
-                    ["latexdiff", f"--type={diff_type}", "--append-safecmd=label",
-                     old_flat_noexp, new_flat_noexp], stdout=out, stderr=errf)
+            cur_old, cur_new = old_flat_noexp, new_flat_noexp
+            run_latexdiff(cur_old, cur_new, gfx)
+            ok = build_diff_pdf(build, main_new)
+        # Deleted-figure markup is the other thing that can make a document
+        # unbuildable; shed that too rather than fail.
+        if not ok and gfx:
+            warn("warning: build failed with deleted-figure markup; retrying without it")
+            run_latexdiff(cur_old, cur_new, [])
             build_diff_pdf(build, main_new)
 
         if not os.path.isfile(os.path.join(build, "diff.pdf")):

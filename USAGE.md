@@ -137,17 +137,23 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
 4. For BibTeX documents, compiles each side once and runs `bibtex` to produce its formatted
    `.bbl`, then re-flattens with `latexpand --expand-bbl` — so edits to reference entries
    show up in the diff like any other text (biblatex documents skip this; see notes).
-5. Runs `latexdiff --type=<TYPE> --append-safecmd=label` on the two flattened files.
+5. Runs `latexdiff --type=<TYPE> --append-safecmd=label --graphics-markup=both` on the two
+   flattened files.
 6. Copies all non-main files (figures, `.bib`, `.cls`, `.sty`, …) from the **new** project
-   alongside the diff so it compiles.
+   alongside the diff so it compiles, plus any figure only the **old** version had, so
+   deleted figures still have a file to draw.
 7. Builds the PDF with `pdflatex` → `bibtex` → `pdflatex` ×2 to resolve refs and citations.
 8. Compares figures and appends OLD/NEW collages for the changed ones (unless `-F`) —
    see [figure comparison](FIGURES.md).
 
 ## Notes & limitations
 
-- The diff compiles against the **new** project's assets. Figures that existed only in the
-  old version won't be present.
+- The diff compiles against the **new** project's assets, plus the figures only the old
+  version referenced — those are copied in so a deleted or renamed figure is drawn in place,
+  at half size with a red cross (latexdiff's `--graphics-markup=both`). A new asset always
+  wins over an old namesake. If that markup makes a document unbuildable — latexdiff warns
+  it can provoke "Misplaced \noalign" on some tables — the build retries without it and
+  says so; the OLD/NEW collage pages still show the figure either way.
 - `pdflatex` runs without `-halt-on-error`: `latexdiff` markup often trips minor errors, so
   the build pushes through them. If no PDF is produced, the tail of `diff.log` is printed.
 - Each project's main file is detected independently, so the two may have different
