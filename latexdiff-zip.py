@@ -641,15 +641,21 @@ def match_figures(old_root, new_root, old_flat, new_flat):
     old_gp = _parse_graphicspath(old_text)
     new_gp = _parse_graphicspath(new_text)
 
+    # Label -> that label's old refs, in document order. A multi-panel figure
+    # written as several \includegraphics under one \label contributes one
+    # entry per panel, and each old panel is consumed by at most one new one:
+    # pairing every new panel with the same old ref would compare unrelated
+    # images and then report the remaining old panels as removed.
     old_by_label = {}
     for r in old_refs:
-        if r["label"] and r["label"] not in old_by_label:
-            old_by_label[r["label"]] = r
+        if r["label"]:
+            old_by_label.setdefault(r["label"], []).append(r)
 
     matched, old_used, unmatched_new = [], set(), []
     for nr in new_refs:
-        if nr["label"] and nr["label"] in old_by_label:
-            or_ = old_by_label[nr["label"]]
+        pool = old_by_label.get(nr["label"]) if nr["label"] else None
+        if pool:
+            or_ = pool.pop(0)
             matched.append((or_, nr))
             old_used.add(id(or_))
         else:

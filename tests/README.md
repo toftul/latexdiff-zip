@@ -49,6 +49,7 @@ extract path of either engine.
 | `figure-graphicspath` | `\graphicspath{{figs/}}` resolution — a bare name and an explicit `figs/` prefix both resolve (2 changed). |
 | `figure-visually-identical` | A byte-different but pixel-identical figure is dropped (no change reported). |
 | `figure-added` / `figure-removed` | A one-sided figure gets a `NEW ONLY` / `OLD ONLY` page. |
+| `figure-multipanel` | Three `\includegraphics` under one `\label`: panels pair one-to-one, so only the edited panel is reported (1 changed, none added/removed). |
 
 Fixtures hold only source (`.tex`/`.bib`, and a shipped `.bbl` where that is the
 scenario) — never build artifacts. The engine extracts and builds in a temp

@@ -200,6 +200,15 @@ CASES = [
          need_lines=["figure removed", "figure diff: 1 removed"],
          forbid_lines=["figure changed", "figure added"], min_pages=2),
 
+    # Three \includegraphics under a single \label: panels must pair
+    # one-to-one, so only the edited middle panel is reported. Pairing every
+    # new panel with the first old ref instead gave 2 bogus changes + 2 bogus
+    # removals.
+    Case("figure_multipanel",
+         old_dir="figure-multipanel/old", new_dir="figure-multipanel/new",
+         need_lines=["figure diff: 1 changed"],
+         forbid_lines=["figure added", "figure removed"], min_pages=2),
+
     # ---- network cases (opt-in: LDZ_NETWORK=1) ----------------------------
     Case("arxiv_natbib", literal=["1706.03762v1", "1706.03762v2"], args=["-F"],
          need_lines=["fetching arXiv", "running latexdiff"],
