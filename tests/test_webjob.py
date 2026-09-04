@@ -16,6 +16,7 @@ import importlib.util
 import os
 import sys
 import tempfile
+import time
 import types
 import unittest
 
@@ -102,6 +103,67 @@ class RunBuildTest(unittest.TestCase):
         finally:
             app._build = original
         self.assertEqual(self.status(), "FAIL")
+
+
+class StagedUploadTest(unittest.TestCase):
+    """The staging area POST /jobs resolves its two sides from.
+
+    Each archive is uploaded once, by /inspect, and the build request names it
+    by id -- so no single request carries both. Sending both together made
+    their sizes add up against the reverse proxy's body cap (100 MB on a
+    Cloudflare free plan): two 55 MB projects, each fine alone, were rejected
+    at the edge with a 413 the app never saw."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="ldz-test-uploads-")
+        self.saved_root = app.UPLOADS_ROOT
+        app.UPLOADS_ROOT = self.root
+
+    def tearDown(self):
+        app.UPLOADS_ROOT = self.saved_root
+
+    def stage(self, upload_id, name="archive.zip"):
+        d = os.path.join(self.root, upload_id)
+        os.makedirs(d)
+        path = os.path.join(d, name)
+        with open(path, "wb") as f:
+            f.write(b"PK\x05\x06" + b"\0" * 18)
+        return path
+
+    def test_resolves_a_staged_upload(self):
+        path = self.stage("a" * 32, "bug_test_old.zip")
+        self.assertEqual(app._staged_path("a" * 32), path)
+
+    def test_unknown_id_is_not_an_error_path(self):
+        """An id whose file is gone (cleaned up) resolves to nothing."""
+        self.assertIsNone(app._staged_path("b" * 32))
+
+    def test_non_hex_ids_are_refused(self):
+        """The id indexes a directory name, so it must not carry a path."""
+        self.stage("c" * 32)
+        for bad in ("../" + "c" * 32, "c" * 31 + "/", "", "..", "C" * 32):
+            self.assertIsNone(app._staged_path(bad), bad)
+
+    def test_cleanup_drops_only_stale_uploads(self):
+        """A file picked and never built must not sit in staging forever."""
+        fresh = self.stage("d" * 32)
+        stale = self.stage("e" * 32)
+        old = time.time() - 7200
+        os.utime(os.path.dirname(stale), (old, old))
+        app._cleanup_old_uploads(max_age=3600)
+        self.assertTrue(os.path.exists(fresh))
+        self.assertIsNone(app._staged_path("e" * 32))
+
+    def test_safe_name_keeps_the_extension_the_cli_dispatches_on(self):
+        """extract_archive() picks its unpacker from the suffix, so it stays."""
+        self.assertEqual(app._safe_name("bug_test_old.zip", ".zip"), "bug_test_old.zip")
+        self.assertEqual(app._safe_name("v2 final.tar.gz", ".tar.gz"), "v2_final.tar.gz")
+
+    def test_safe_name_strips_paths_and_odd_characters(self):
+        self.assertEqual(app._safe_name("../../etc/passwd.zip", ".zip"), "passwd.zip")
+        self.assertEqual(app._safe_name("../.hidden.zip", ".zip"), "hidden.zip")
+        # Nothing usable left: fall back to a name with the right suffix.
+        self.assertEqual(app._safe_name("", ".zip"), "archive.zip")
 
 
 if __name__ == "__main__":

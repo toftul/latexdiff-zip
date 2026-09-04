@@ -91,6 +91,14 @@ DNS is on Cloudflare, so the `CNAME` and edge TLS cert are created automatically
 - **Bots:** Bot Fight Mode on; **Security Level** Medium/High.
 - **Cache Rules:** *Bypass cache* for `latexdiff.toftul.net` (upload, log stream, and PDF must not cache).
 
+> **Upload size is capped at the edge, not by the app.** Cloudflare's free plan rejects any
+> request body over **100 MB** with a 413 that never reaches the origin. Each archive is
+> therefore uploaded in its own request (see `POST /inspect` in CLAUDE.md), so only the
+> *largest single* archive has to fit — not the two added together. The browser warns before
+> uploading anything bigger; if your plan allows more (Pro 100 MB, Business 200 MB,
+> Enterprise up to 500 MB), raise it to match with `Environment=LDZ_MAX_UPLOAD_MB=200` in the
+> quadlet.
+
 ## 7. (Recommended) Keep the VM off your LAN
 
 libvirt NAT lets the VM reach the internet *and* your LAN. Block the LAN with one host rule:

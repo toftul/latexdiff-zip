@@ -46,8 +46,9 @@ python3 -m py_compile webapp/app.py webapp/mains.py   # web app syntax
 # the drift guard tying webapp/mains.py to the engine's detect_main.
 python3 tests/test_mains.py
 
-# Web backend job bookkeeping: every build ends in a DONE/FAIL status, so the
-# SSE stream can't leave the page spinning. Flask is stubbed; instant.
+# Web backend: every build ends in a DONE/FAIL status (so the SSE stream can't
+# leave the page spinning), plus the staged-upload contract POST /jobs resolves
+# its two sides from. Flask is stubbed; instant.
 python3 tests/test_webjob.py
 
 # Behaviour oracle: runs the engine over tests/cases/ fixtures and asserts on
@@ -140,11 +141,23 @@ has its own `LDZ_TIMEOUT` watchdog (default 600s). gunicorn therefore runs **one
 with `--timeout 0`** so the stream, the build, and the download share process state and long
 builds don't trip the worker watchdog — keep it single-worker.
 
-**Main-.tex suggestions (`webapp/mains.py` + `POST /inspect`):** picking an archive in the UI
-scans it (`candidates()` reads the entry list and the top-level `.tex` members straight out of
-the upload stream — nothing is unpacked or saved) and fills each side's main-.tex dropdown, so
-an archive with several `\documentclass` files is resolved by clicking rather than by a failed
-build and a typed filename. Two rules to keep:
+**One upload per archive (`POST /inspect` → staged id → `POST /jobs`).** Picking a file
+uploads it *once*, to `/inspect`, which stages it under `UPLOADS_ROOT` and returns an id; the
+later `POST /jobs` names the two staged archives and carries no archive bytes (~800 bytes
+instead of the sum of both). This is not an optimisation but a correctness fix: sending both
+sides in one request made their sizes add up against the **reverse proxy's body cap** — 100 MB
+on the Cloudflare free plan the deployment uses — so two 55 MB projects, each fine on its own,
+were rejected at the edge with a 413 the app never saw, leaving the page on an empty log. The
+browser checks each file against `MAX_UPLOAD_MB` (`LDZ_MAX_UPLOAD_MB`, default 100) before
+uploading, and reports upload progress — hence `XMLHttpRequest` rather than `fetch` in
+`scanArchive`, since only XHR exposes `upload.onprogress`. Staged files are cleaned up by age
+like job dirs, so `POST /jobs` must keep treating an unknown id as "expired, pick the file
+again"; posting the archives directly still works as a fallback.
+
+**Main-.tex suggestions (`webapp/mains.py` + `POST /inspect`):** the same `/inspect` call fills
+each side's main-.tex dropdown (`candidates()` reads the entry list and the top-level `.tex`
+members), so an archive with several `\documentclass` files is resolved by clicking rather than
+by a failed build and a typed filename. Two rules to keep:
 
 - **It is not a call into the engine, deliberately.** `detect_main` takes an extracted directory,
   returns exactly one name, and `die()`s on ambiguity; the UI needs an un-extracted archive and

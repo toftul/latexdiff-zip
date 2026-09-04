@@ -345,7 +345,15 @@
   // offer those. "Other…" falls back to the text box for a name the scan can't
   // see (e.g. a main file inside a subfolder).
   var OTHER = '!other';
-  var scanning = { old: null, new: null };   // in-flight AbortControllers
+  var scanning = { old: null, new: null };   // in-flight XHRs, one per side
+  var staged = { old: null, new: null };     // server-side id of each upload
+  var scanDone = { old: null, new: null };   // promise per in-flight upload
+
+  // The reverse proxy in front of the app caps request bodies, so an archive
+  // over the cap can never reach it. Checked before uploading: a 55 MB pair
+  // used to be sent as one 110 MB request and bounced at the edge, which the
+  // page saw only as a build that never started.
+  var MAX_UPLOAD_MB = {{ max_upload_mb }};
 
   function pickerParts(side) {
     return {
@@ -359,6 +367,18 @@
     var note = pickerParts(side).note;
     note.textContent = text || '';
     note.classList.toggle('warn', !!warn);
+  }
+
+  // Upload progress also goes on the drop zone, appended to the file name.
+  // setNote() alone would not do: its element lives inside the Options panel,
+  // which is collapsed by default -- and a long upload with no visible sign of
+  // movement is exactly what makes the page look hung.
+  function setProgress(side, text) {
+    var zone = document.getElementById('drop-' + side);
+    var hint = zone.querySelector('.hint');
+    var input = zone.querySelector('input[type=file]');
+    var name = input.files.length ? input.files[0].name : hint.dataset.default;
+    hint.textContent = text ? name + ' — ' + text : name;
   }
 
   // Rebuild a side's option list and reset it to Auto-detect. A new archive
@@ -379,22 +399,55 @@
     p.txt.hidden = true;
   }
 
+  // Upload one side's archive and read back its candidate main .tex files.
+  // The upload happens here, on selection -- not at Generate -- so each archive
+  // crosses the network exactly once and the build request stays tiny. XHR
+  // rather than fetch(): only XHR reports upload progress, and a multi-minute
+  // upload with no visible progress is indistinguishable from a hung page.
   function scanArchive(side, file) {
     if (scanning[side]) scanning[side].abort();
     setCandidates(side, []);
+    staged[side] = null;
+    scanDone[side] = null;
     if (!file) { setNote(side, ''); return; }
 
-    var ac = new AbortController();
-    scanning[side] = ac;
-    setNote(side, 'scanning archive…');
+    if (file.size > MAX_UPLOAD_MB * 1000 * 1000) {
+      var msg = 'too big to upload: ' + (file.size / 1e6).toFixed(0) +
+                ' MB, limit ' + MAX_UPLOAD_MB + ' MB';
+      setNote(side, msg, true);
+      setProgress(side, msg);
+      return;
+    }
 
-    var fd = new FormData();
-    fd.append('archive', file);
-    fetch('/inspect', { method: 'POST', body: fd, signal: ac.signal })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (ac.signal.aborted) return;
-        var list = (d && d.candidates) || [];
+    var xhr = new XMLHttpRequest();
+    scanning[side] = xhr;
+    setNote(side, 'uploading… 0%');
+
+    scanDone[side] = new Promise(function (resolve) {
+      xhr.upload.addEventListener('progress', function (e) {
+        if (!e.lengthComputable) return;
+        var pct = Math.round(100 * e.loaded / e.total);
+        var msg = pct < 100 ? 'uploading… ' + pct + '%' : 'scanning archive…';
+        setNote(side, msg);
+        setProgress(side, msg);
+      });
+      xhr.addEventListener('load', function () {
+        var d = null;
+        try { d = JSON.parse(xhr.responseText); } catch (e) {}
+        setProgress(side, '');
+        if (xhr.status !== 200 || !d) {
+          // A 413 here is the edge, not the app: the file cleared our own check
+          // but not the proxy's. Everything else falls back to auto-detect.
+          var rejected = xhr.status === 413;
+          setNote(side, rejected
+            ? 'rejected as too large by the server — try a smaller archive' : '',
+            rejected);
+          if (rejected) setProgress(side, 'rejected as too large');
+          resolve();
+          return;
+        }
+        staged[side] = d.upload || null;
+        var list = d.candidates || [];
         setCandidates(side, list);
         if (list.length > 1) {
           // The engine refuses to guess between these, so the build would fail
@@ -406,8 +459,18 @@
         } else {
           setNote(side, '');   // nothing found: auto-detect, exactly as before
         }
-      })
-      .catch(function () { if (!ac.signal.aborted) setNote(side, ''); });
+        resolve();
+      });
+      xhr.addEventListener('error', function () {
+        setNote(side, ''); setProgress(side, ''); resolve();
+      });
+      xhr.addEventListener('abort', function () { resolve(); });
+    });
+
+    var fd = new FormData();
+    fd.append('archive', file);
+    xhr.open('POST', '/inspect');
+    xhr.send(fd);
   }
 
   ['old', 'new'].forEach(function (side) {
@@ -555,6 +618,20 @@
     setBusy(false);
   }
 
+  // What POST /jobs actually receives. A side whose archive is already staged
+  // is named by id and its file input dropped, so the build request carries no
+  // archive bytes at all; a side without one (the scan failed, or was never
+  // reached) still sends the file, exactly as before.
+  function buildFormData() {
+    var fd = new FormData(form);
+    ['old', 'new'].forEach(function (side) {
+      if (!staged[side]) return;
+      fd.delete(side + '_zip');
+      fd.append(side + '_upload', staged[side]);
+    });
+    return fd;
+  }
+
   form.addEventListener('submit', async function (ev) {
     ev.preventDefault();
 
@@ -572,6 +649,18 @@
       return;
     }
 
+    // Sizes are checked per file, not in total: each archive now travels in
+    // its own request, so only the largest one has to clear the edge's cap.
+    var tooBig = [['old', form.old_zip.files[0]], ['new', form.new_zip.files[0]]]
+      .filter(function (p) { return p[1] && p[1].size > MAX_UPLOAD_MB * 1000 * 1000; });
+    if (tooBig.length) {
+      statusEl.className = 'err';
+      statusEl.textContent = 'The ' + tooBig.map(function (p) { return p[0].toUpperCase(); }).join(' and ') +
+        ' archive' + (tooBig.length > 1 ? 's are' : ' is') + ' larger than the ' +
+        MAX_UPLOAD_MB + ' MB upload limit.';
+      return;
+    }
+
     statusEl.className = '';
     result.style.display = 'none';
     cow.style.display = '';        // the cow watches over every build
@@ -584,9 +673,14 @@
     tick();
     timer = setInterval(tick, 1000);
 
+    // Generating right after dropping the files can outrun their uploads; wait
+    // for whichever is still in flight so the build request can name them.
+    statusEl.textContent = 'Uploading…';
+    await Promise.all([scanDone.old, scanDone.new]);
+
     var id;
     try {
-      var res = await fetch('/jobs', { method: 'POST', body: new FormData(form) });
+      var res = await fetch('/jobs', { method: 'POST', body: buildFormData() });
       var data = await res.json().catch(function () { return {}; });
       if (!res.ok) {
         statusEl.className = 'err';
@@ -646,9 +740,10 @@
     document.querySelectorAll('.arxiv-row input').forEach(function (i) {
       i.classList.remove('ready');   // form.reset() already cleared the value
     });
-    ['old', 'new'].forEach(function (side) {   // form.reset() leaves the
-      scanArchive(side, null);                 // injected options in place
-    });
+    // form.reset() leaves the injected options in place, and clears the file
+    // inputs without firing `change` -- so this also drops the staged upload
+    // ids, which would otherwise rebuild the previous run's archives.
+    ['old', 'new'].forEach(function (side) { scanArchive(side, null); });
     result.style.display = 'none';
     logWrap.style.display = 'none';
     cow.style.display = '';        // welcome the cow back for the next run
