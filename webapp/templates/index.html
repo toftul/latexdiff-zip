@@ -266,7 +266,7 @@
         <div class="field">
           <label for="diff_type">Markup style</label>
           <select id="diff_type" name="diff_type">
-            {% for t in diff_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+            {% for tag, label in diff_types %}<option value="{{ tag }}">{{ label }}</option>{% endfor %}
           </select>
         </div>
         <div class="field check">

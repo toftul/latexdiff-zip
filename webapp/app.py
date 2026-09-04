@@ -24,8 +24,17 @@ import mains
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB per request
 
-# latexdiff --type values worth offering in the UI.
-DIFF_TYPES = ["UNDERLINE", "CFONT", "CCHANGEBAR", "CULINECHBAR", "BOLD"]
+# latexdiff --type values worth offering in the UI, each with the plain-English
+# label the dropdown shows. The raw tag stays in the label (and is the option's
+# value) so it still lines up with the CLI's -t flag and latexdiff's own docs.
+DIFF_TYPE_LABELS = [
+    ("UNDERLINE", "Added underlined, deleted struck out (UNDERLINE)"),
+    ("CFONT", "Added blue, deleted red & small (CFONT)"),
+    ("CCHANGEBAR", "Colored + bars in the margin (CCHANGEBAR)"),
+    ("CULINECHBAR", "Underline/strikeout + bars in the margin (CULINECHBAR)"),
+    ("BOLD", "Added in bold, deletions hidden (BOLD)"),
+]
+DIFF_TYPES = [t for t, _ in DIFF_TYPE_LABELS]
 
 # Archive extensions the CLI can extract. The CLI dispatches on the file
 # extension, so an upload must be saved under a name that ends in one of these
@@ -187,7 +196,7 @@ def _run_build(job_dir, cmd):
 
 @app.get("/")
 def index():
-    return render_template("index.html", diff_types=DIFF_TYPES)
+    return render_template("index.html", diff_types=DIFF_TYPE_LABELS)
 
 
 @app.post("/inspect")
