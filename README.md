@@ -71,7 +71,7 @@ text.
 
 ## Feedback
 
-Spotted a bug or have an idea? [Open an issue](https://github.com/toftul/latexdiff-zip/issues) 🐮
+A bug or an idea? [Open an issue](https://github.com/toftul/latexdiff-zip/issues) 🐮
 
 ## License
 
