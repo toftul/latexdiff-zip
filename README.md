@@ -53,6 +53,29 @@ You can run `latexdiff` *inside* Overleaf. [Here's the trick.](OVERLEAF.md)
 - [**Figure comparison**](FIGURES.md) — how changed figures get paired and diffed.
 - [**Self-hosting**](DEPLOY.md) — put your own public copy online with a Cloudflare Tunnel.
 
+## Similar projects
+
+Other tools solve part of the same problem. Each one does something this
+project does not.
+
+- [**git-latexdiff-web**](https://github.com/am009/git-latexdiff-web) — takes
+  two Overleaf zips in the browser, hosted at
+  [latexdiff.cn](https://latexdiff.cn). It returns the diff PDF and the diff
+  LaTeX source, so you can edit the result. It marks a figure as changed from
+  the `\includegraphics` arguments and does not compare the images.
+- [**comparxiv**](https://github.com/temken/comparxiv) — a CLI for arXiv
+  preprints, installed with `pip install comparxiv`. Give it a preprint ID and
+  it compares two versions. It needs a local TeX distribution. Figure
+  comparison is on the to-do list.
+- [**3142.nl/latex-diff**](https://3142.nl/latex-diff/) — a web page that runs
+  `latexdiff` on two uploads and returns one diff document. Nothing to install.
+  The site states that it keeps no copies of your files.
+
+This project differs in three ways. It shows both versions of a changed figure
+side by side in the PDF. It reads Overleaf zips, tar archives, and arXiv IDs
+through the same interface. It also diffs the bibliography, not only the body
+text.
+
 ## Feedback
 
 Spotted a bug or have an idea? [Open an issue](https://github.com/toftul/latexdiff-zip/issues) 🐮
