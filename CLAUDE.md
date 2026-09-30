@@ -104,6 +104,14 @@ collages into the PDF.
   ladder has a third rung for this: if the deleted-figure markup makes a document unbuildable
   (latexdiff's manual warns about "Misplaced \noalign" in tables), the diff is redone without
   it.
+- **`-t BLUE` is the engine's own style, not a latexdiff type.** It runs latexdiff with
+  `CFONT`, then `hide_deletions` inserts `BLUE_PREAMBLE` before `\begin{document}`: `\DIFadd`
+  is plain blue and `\DIFdelbegin … \DIFdelend` swallows the whole deleted block. An empty
+  `\DIFdel` is not enough, because a deleted `\section` stays live and prints a bare numbered
+  heading. It does not use latexdiff's `--preamble`, because in the `texlive/texlive` image
+  that option fails on a missing Perl module (`Encode::Locale`). BLUE also turns off
+  `--graphics-markup=both` and `copy_old_figures` on purpose, so deleted figures vanish. Do not
+  "fix" this. The figure appendix (including OLD ONLY panels) is unchanged.
 - **Stdlib only, no pip deps.** The engine imports nothing outside the standard library; keep
   it that way. The LaTeX toolchain and the figure tooling (ImageMagick, pdfunite/gs) are the
   only external programs, all invoked via `subprocess`.

@@ -33,12 +33,13 @@ app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB per request
 # LDZ_MAX_UPLOAD_MB when the deployment in front of the app allows more.
 MAX_UPLOAD_MB = int(os.environ.get("LDZ_MAX_UPLOAD_MB", "100"))
 
-# latexdiff --type values worth offering in the UI, each with the plain-English
-# label the dropdown shows. The raw tag stays in the label (and is the option's
+# latexdiff --type values worth offering in the UI (plus the engine's own BLUE),
+# each with the plain-English label the dropdown shows. The raw tag stays in the label (and is the option's
 # value) so it still lines up with the CLI's -t flag and latexdiff's own docs.
 DIFF_TYPE_LABELS = [
     ("UNDERLINE", "Added underlined, deleted struck out (UNDERLINE)"),
     ("CFONT", "Added blue, deleted red & small (CFONT)"),
+    ("BLUE", "Added in blue, deletions hidden (BLUE)"),
     ("CCHANGEBAR", "Colored + bars in the margin (CCHANGEBAR)"),
     ("CULINECHBAR", "Underline/strikeout + bars in the margin (CULINECHBAR)"),
     ("BOLD", "Added in bold, deletions hidden (BOLD)"),

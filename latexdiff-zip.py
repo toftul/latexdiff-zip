@@ -45,6 +45,26 @@ DEVNULL = subprocess.DEVNULL
 # it can provoke "Misplaced \noalign" on some tables.
 GRAPHICS_MARKUP = "--graphics-markup=both"
 
+# -t BLUE is ours, not latexdiff's: additions in plain blue, deletions not shown
+# at all. latexdiff runs with CFONT and these definitions go in just before
+# \begin{document}, overriding its \providecommand ones. (latexdiff's own
+# --preamble would be the natural hook, but in the texlive/texlive image it
+# dies on a missing Perl module, Encode::Locale.) An empty \DIFdel is not
+# enough: a deleted \section stays live with only its title wrapped, leaving a
+# bare numbered heading. So \DIFdelbegin swallows everything up to its
+# \DIFdelend -- the heading, its %DIFAUXCMD counter fix-up, the lot. Deleted
+# figures are dropped too: BLUE keeps latexdiff's default "new-only" graphics
+# markup and so never needs copy_old_figures.
+BLUE_TYPE = "BLUE"
+BLUE_PREAMBLE = rb"""%DIF BLUE PREAMBLE (latexdiff-zip)
+\RequirePackage{color}
+\DeclareRobustCommand{\DIFadd}[1]{{\color{blue}#1}}
+\DeclareRobustCommand{\DIFdel}[1]{}
+\long\def\DIFdelbegin#1\DIFdelend{}
+\long\def\DIFdelbeginFL#1\DIFdelendFL{}
+"""
+_BEGIN_DOC_RE = re.compile(rb"^[^\S\n]*\\begin\{document\}", re.M)
+
 # Image extensions tried when resolving an \includegraphics path with no suffix.
 RESOLVE_EXTS = ("", ".png", ".jpg", ".jpeg", ".pdf", ".eps", ".ps", ".svg",
                 ".tiff", ".bmp")
@@ -123,7 +143,8 @@ def usage():
         "  -M main.tex    Main .tex file in the NEW project. Auto-detected if omitted.\n"
         "                 The two projects may use different main-file names.\n"
         "  -o output.pdf  Output PDF path (default: <dir of NEW>/diff.pdf).\n"
-        "  -t TYPE        latexdiff --type value (default: UNDERLINE).\n"
+        "  -t TYPE        latexdiff --type value (default: UNDERLINE), or BLUE:\n"
+        "                 additions in blue, deletions not shown at all.\n"
         "  -F             Do not append figure-diff collages to the PDF (on by default).\n"
         "  -c DIR         Also save the figure-diff collage PNGs into DIR."
     )
@@ -906,6 +927,19 @@ def build_diff_pdf(build, main_new):
     return os.path.isfile(os.path.join(build, "diff.pdf"))
 
 
+def hide_deletions(diff_tex):
+    """Turn a CFONT diff into the BLUE style by adding BLUE_PREAMBLE right
+    before \\begin{document}. Works on bytes so a non-UTF-8 source survives."""
+    with open(diff_tex, "rb") as f:
+        data = f.read()
+    m = _BEGIN_DOC_RE.search(data)
+    if m is None:
+        warn("warning: no \\begin{document} in the diff; deletions will show")
+        return
+    with open(diff_tex, "wb") as f:
+        f.write(data[:m.start()] + BLUE_PREAMBLE + data[m.start():])
+
+
 # ---- main -----------------------------------------------------------------
 
 def main(argv):
@@ -1057,17 +1091,23 @@ def main(argv):
         diff_tex = os.path.join(build, "diff.tex")
         latexdiff_log = os.path.join(tmp, "latexdiff.log")
 
+        blue = diff_type == BLUE_TYPE
+        ld_type = "CFONT" if blue else diff_type
+
         def run_latexdiff(old_f, new_f, extra):
             with open(diff_tex, "wb") as out, open(latexdiff_log, "ab") as errf:
-                return subprocess.run(
-                    ["latexdiff", f"--type={diff_type}", "--append-safecmd=label",
+                ld = subprocess.run(
+                    ["latexdiff", f"--type={ld_type}", "--append-safecmd=label",
                      *extra, old_f, new_f], stdout=out, stderr=errf)
+            if blue and diff_written():
+                hide_deletions(diff_tex)
+            return ld
 
         def diff_written():
             return os.path.isfile(diff_tex) and os.path.getsize(diff_tex) > 0
 
         say(f"running latexdiff (type={diff_type})...")
-        gfx = [GRAPHICS_MARKUP]
+        gfx = [] if blue else [GRAPHICS_MARKUP]
         ld = run_latexdiff(old_flat, new_flat, gfx)
         if not diff_written():
             gfx = []                              # latexdiff too old to know it

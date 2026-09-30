@@ -50,7 +50,7 @@ container.
 | `-m main.tex` | Main `.tex` file of the **old** project, relative to its root. Auto-detected if omitted. |
 | `-M main.tex` | Main `.tex` file of the **new** project. Auto-detected if omitted; the two projects may use different names. |
 | `-o output.pdf` | Output PDF path. Defaults to `diff.pdf` next to the `NEW` archive. |
-| `-t TYPE` | `latexdiff --type` value (`UNDERLINE`, `CFONT`, `CCHANGEBAR`, …). Default: `UNDERLINE`. |
+| `-t TYPE` | `latexdiff --type` value (`UNDERLINE`, `CFONT`, `CCHANGEBAR`, …), or `BLUE`: added text in blue, deleted text not shown. Default: `UNDERLINE`. |
 | `-F` | Do **not** append figure-diff collages to the PDF (appended by default). |
 | `-c DIR` | Also save the figure-diff collage PNGs into `DIR`. |
 | `-h` | Show help. |
@@ -88,6 +88,9 @@ container.
 
 # Different markup style
 ./latexdiff-zip.py -t CCHANGEBAR old.zip new.zip
+
+# Only show what was added, in blue (deletions are not shown)
+./latexdiff-zip.py -t BLUE old.zip new.zip
 
 # Skip collages in the PDF, but save them as PNGs in a folder
 ./latexdiff-zip.py -F -c changed_figures old.zip new.zip
@@ -138,7 +141,9 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
    `.bbl`, then re-flattens with `latexpand --expand-bbl` — so edits to reference entries
    show up in the diff like any other text (biblatex documents skip this; see notes).
 5. Runs `latexdiff --type=<TYPE> --append-safecmd=label --graphics-markup=both` on the two
-   flattened files.
+   flattened files. For `-t BLUE`, it runs `--type=CFONT` with the default graphics markup
+   instead, then adds definitions before `\begin{document}` that color additions blue and
+   remove deletions.
 6. Copies all non-main files (figures, `.bib`, `.cls`, `.sty`, …) from the **new** project
    alongside the diff so it compiles, plus any figure only the **old** version had, so
    deleted figures still have a file to draw.
@@ -154,6 +159,9 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
   wins over an old namesake. If that markup makes a document unbuildable — latexdiff warns
   it can provoke "Misplaced \noalign" on some tables — the build retries without it and
   says so; the OLD/NEW collage pages still show the figure either way.
+- `-t BLUE` shows the new document with additions in blue. It removes all deleted content:
+  text, equations, section headings, references and figures. It does not copy old figures.
+  The figure appendix is not changed: it still shows OLD/NEW collages and OLD ONLY panels.
 - `pdflatex` runs without `-halt-on-error`: `latexdiff` markup often trips minor errors, so
   the build pushes through them. If no PDF is produced, the tail of `diff.log` is printed.
 - Each project's main file is detected independently, so the two may have different
