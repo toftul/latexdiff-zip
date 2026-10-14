@@ -298,11 +298,13 @@ CASES = [
 
     # The README example: a portrait photo swapped. The comparison is headed
     # by the figure's number and caption, with its page in the diff; the
-    # appendix has its own bookmarks, after the paper's.
+    # appendix has its own bookmarks, after the paper's. The panels say OLD
+    # and NEW and nothing else (no archive names).
     Case("figure_dirac", old_dir="dirac-diff/old", new_dir="dirac-diff/new",
          need_lines=["figure changed: fig_man (Figure 1, p. 1)"],
          probe_present=["Figure 1", "Paul Dirac.", "p. 1 in the diff", "Changed",
-                        "OLD", "NEW", "old.zip", "new.zip"],
+                        "OLD", "NEW"],
+         probe_absent=["old.zip", "new.zip"],        # a panel's label is OLD/NEW only
          outline_present=["Figure changes", "Figure 1 \u00b7 changed"],
          min_pages=2, max_pages=2),
 

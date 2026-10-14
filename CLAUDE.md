@@ -199,8 +199,8 @@ optional deps are missing — never make these hard requirements.
   slots, the missing one a dashed "Not in … version" placeholder (full size side by side, a
   strip when stacked). The page size follows the diff PDF (`pdf_page_size` reads the
   `/MediaBox`, inflating pdfTeX's object streams) between A5 and A3; anything else gets A4 in
-  the paper's orientation (`appendix_page_size`). Each panel names its source (`side_labels`:
-  archive name or `arXiv:id`, plus the main `.tex` when both sides share a name).
+  the paper's orientation (`appendix_page_size`). A panel's label is only OLD or NEW: the
+  archive names that 2.3.x printed next to it were removed as clutter, so don't add them back.
 - **What a comparison says about its figure.** Page A1 opens with an overview table (status,
   figure, page in the diff, appendix page; rows link to their comparison), and the appendix
   adds a "Figure changes" bookmark with one child per comparison — hyperref and links

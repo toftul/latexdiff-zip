@@ -1009,18 +1009,6 @@ def choose_layout(aspects, line_w, text_h):
     return "stack" if area(line_w) > area(SIDE_W * line_w) * 1.001 else "side"
 
 
-def side_labels(old_src, new_src, main_old, main_new):
-    """The text after OLD / NEW on each panel: where that side came from.
-    Two sides with the same source name (one archive holding both versions,
-    or two exports both called Paper.zip) add the main .tex to tell them
-    apart; if that matches too, there is nothing to add."""
-    if old_src != new_src:
-        return old_src, new_src
-    if main_old != main_new:
-        return f"{old_src} · {main_old}", f"{new_src} · {main_new}"
-    return None, None
-
-
 _TEX_ESCAPES = {
     "\\": r"\textbackslash{}", "{": r"\{", "}": r"\}", "$": r"\$", "&": r"\&",
     "#": r"\#", "%": r"\%", "_": r"\_", "~": r"\textasciitilde{}",
@@ -1148,7 +1136,7 @@ def _tex_to_text(s):
     return "".join(out)
 
 
-def caption_segments(raw, limit=150):
+def caption_segments(raw, limit=100):
     """A caption as [(kind, text)], kind "text" or "math" (TeX source),
     whitespace collapsed and cut to about `limit` characters at a word
     boundary, with an ellipsis. Maths is never cut in half."""
@@ -1267,9 +1255,8 @@ _APPENDIX_PREAMBLE = r"""\documentclass[10pt]{article}
 \newcommand{\ldzchip}[2]{\tikz[baseline=(c.base)]\node[draw=#1,text=#1,
   line width=0.8bp,rounded corners=2bp,inner xsep=3.5bp,inner ysep=2bp,
   font=\small\bfseries\boldmath](c){#2};}
-\newcommand{\ldzside}[3]{{\color{#1}\rule[-0.3ex]{2.5bp}{2ex}}\hspace{0.5em}%
-  {\small\bfseries\color{#1}#2}\ifx\relax#3\relax\else
-  \hspace{0.6em}{\small\color{ldzmuted}#3}\fi}
+\newcommand{\ldzside}[2]{{\color{#1}\rule[-0.3ex]{2.5bp}{2ex}}\hspace{0.5em}%
+  {\small\bfseries\color{#1}#2}}
 \newcommand{\ldzimg}[3]{{\setlength{\fboxsep}{0pt}\setlength{\fboxrule}{0.4bp}%
   \fcolorbox{ldzframe}{white}{\includegraphics[width=#1,height=#2,keepaspectratio]{#3}}}}
 \newcommand{\ldzabsent}[3]{\tikz\node[draw=ldzdash,dashed,line width=0.6bp,
@@ -1292,8 +1279,7 @@ _APPENDIX_PREAMBLE_MINIMAL = r"""\documentclass[10pt]{article}
 \definecolor{ldznew}{rgb}{0.04,0.31,0.70}
 \definecolor{ldzchg}{rgb}{0.24,0.25,0.26}
 \newcommand{\ldzchip}[2]{\textbf{\textcolor{#1}{#2}}}
-\newcommand{\ldzside}[3]{\textbf{\textcolor{#1}{#2}}\ifx\relax#3\relax\else
-  \quad\textcolor{ldzmuted}{#3}\fi}
+\newcommand{\ldzside}[2]{\textbf{\textcolor{#1}{#2}}}
 \newcommand{\ldzimg}[3]{\includegraphics[width=#1,height=#2,keepaspectratio]{#3}}
 \newcommand{\ldzabsent}[3]{\fbox{\parbox[c][#2][c]{#1}{\centering\itshape #3}}}
 \newcommand{\ldzfoot}{Figure changes, page \thepage}
@@ -1330,7 +1316,7 @@ def _bp(x):
     return f"{x:.2f}bp"
 
 
-def _appendix_block(i, e, files, layout, line_w, text_h, sources):
+def _appendix_block(i, e, files, layout, line_w, text_h):
     """LaTeX for one comparison: status and title, then OLD and NEW panels in
     the given layout. `files` maps "old"/"new" to the staged include name (None
     for the missing side of an added or removed figure)."""
@@ -1341,8 +1327,7 @@ def _appendix_block(i, e, files, layout, line_w, text_h, sources):
 
     def panel(side):
         colour, word = ("ldzold", "OLD") if side == "old" else ("ldznew", "NEW")
-        src = sources[0] if side == "old" else sources[1]
-        head = rf"\ldzside{{{colour}}}{{{word}}}{{{tex_escape(src) if src else ''}}}"
+        head = rf"\ldzside{{{colour}}}{{{word}}}"
         if files[side] is not None:
             # 1bp less than the box: the frame is drawn outside the image.
             body = rf"\ldzimg{{{_bp(box_w - 1)}}}{{{_bp(box_h - 1)}}}{{{files[side]}}}"
@@ -1426,7 +1411,7 @@ def _stage_figures(entries, figapp, originals):
     return staged
 
 
-def appendix_tex(entries, staged, page, sources, level, single=False):
+def appendix_tex(entries, staged, page, level, single=False):
     """The appendix as LaTeX source. `level` is "full" or "png" (the designed
     page; the two differ only in what _stage_figures copied) or "minimal" (base
     LaTeX only). `single` puts each comparison on a page of its own with
@@ -1446,7 +1431,7 @@ def appendix_tex(entries, staged, page, sources, level, single=False):
     for i, (e, files) in enumerate(zip(entries, staged)):
         aspects = [e[s + "_aspect"] for s in ("old", "new") if e[s + "_aspect"]]
         layout = choose_layout(aspects, line_w, text_h)
-        out.append(_appendix_block(i, e, files, layout, line_w, text_h, sources))
+        out.append(_appendix_block(i, e, files, layout, line_w, text_h))
         out.append(r"\clearpage" if single else r"\vspace{20bp plus 8bp minus 6bp}")
     out.append(r"\end{document}")
     return "\n".join(out) + "\n"
@@ -1467,7 +1452,7 @@ def _compile_clean(figapp, job):
 APPENDIX_LEVELS = ("full", "png", "minimal")
 
 
-def build_fig_appendix(entries, figapp, page, sources):
+def build_fig_appendix(entries, figapp, page):
     """Typeset the appendix; return (pdf_path, level), or (None, None). Falls
     back a level at a time: the designed page with the original figure files,
     then with the rasterised PNGs (a figure pdflatex chokes on), then base
@@ -1477,7 +1462,7 @@ def build_fig_appendix(entries, figapp, page, sources):
         os.makedirs(d, exist_ok=True)
         staged = _stage_figures(entries, d, originals=(level == "full"))
         with open(os.path.join(d, "figures.tex"), "w", encoding="utf-8") as f:
-            f.write(appendix_tex(entries, staged, page, sources, level))
+            f.write(appendix_tex(entries, staged, page, level))
         if _compile_clean(d, "figures"):
             if level != "full":
                 warn(f"warning: figure appendix fell back to the '{level}' style")
@@ -1497,7 +1482,7 @@ def _unique_names(entries):
     return names
 
 
-def export_fig_pngs(entries, figapp, page, sources, level, fig_dir):
+def export_fig_pngs(entries, figapp, page, level, fig_dir):
     """-c DIR: one tightly cropped <name>_diff.png per comparison, the same
     design as the appendix. The comparisons are typeset one per page, then
     each page is rasterised and trimmed to its content. Returns how many
@@ -1506,7 +1491,7 @@ def export_fig_pngs(entries, figapp, page, sources, level, fig_dir):
     os.makedirs(d, exist_ok=True)
     staged = _stage_figures(entries, d, originals=(level == "full"))
     with open(os.path.join(d, "blocks.tex"), "w", encoding="utf-8") as f:
-        f.write(appendix_tex(entries, staged, page, sources, level, single=True))
+        f.write(appendix_tex(entries, staged, page, level, single=True))
     _compile_clean(d, "blocks")
     if not os.path.isfile(os.path.join(d, "blocks.pdf")):
         return 0
@@ -1870,14 +1855,11 @@ def main(argv):
 
         if figs and (embed_figs or fig_dir):
             page = appendix_page_size(pdf_page_size(out_pdf))
-            sources = side_labels(f"arXiv:{old_id}" if old_id else os.path.basename(old_arc),
-                                  f"arXiv:{new_id}" if new_id else os.path.basename(new_arc),
-                                  main_old, main_new)
             figapp = os.path.join(tmp, "figapp")
-            figures_pdf, level = build_fig_appendix(figs, figapp, page, sources)
+            figures_pdf, level = build_fig_appendix(figs, figapp, page)
 
             if fig_dir:
-                n = export_fig_pngs(figs, figapp, page, sources, level or "minimal", fig_dir)
+                n = export_fig_pngs(figs, figapp, page, level or "minimal", fig_dir)
                 if n:
                     say(f"wrote {n} figure comparison PNG(s) to: {fig_dir}/")
                 else:

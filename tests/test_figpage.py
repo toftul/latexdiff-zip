@@ -116,20 +116,6 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual((w, h), (50, 100))
 
 
-class SideLabelsTest(unittest.TestCase):
-    def test_different_sources(self):
-        self.assertEqual(E.side_labels("dirac-v1.zip", "dirac-v2.zip", "a.tex", "a.tex"),
-                         ("dirac-v1.zip", "dirac-v2.zip"))
-
-    def test_same_source_adds_the_main_tex(self):
-        self.assertEqual(E.side_labels("both.zip", "both.zip", "old.tex", "new.tex"),
-                         ("both.zip \u00b7 old.tex", "both.zip \u00b7 new.tex"))
-
-    def test_nothing_tells_them_apart(self):
-        self.assertEqual(E.side_labels("arXiv:2401.1", "arXiv:2401.1", "m.tex", "m.tex"),
-                         (None, None))
-
-
 class TexEscapeTest(unittest.TestCase):
     def test_specials(self):
         self.assertEqual(E.tex_escape("fig_1 & 50% #2 {x} ~^$\\"),
@@ -206,8 +192,7 @@ class AppendixTexTest(unittest.TestCase):
     def tex(self, level, **kw):
         staged = [{"old": "f000o.png", "new": "f000n.png"},
                   {"old": None, "new": "f001n.png"}]
-        return E.appendix_tex(self.entries(), staged, E.A4, ("v1.zip", "v2.zip"),
-                              level, **kw)
+        return E.appendix_tex(self.entries(), staged, E.A4, level, **kw)
 
     def test_every_level_has_the_blocks_and_labels(self):
         for level in E.APPENDIX_LEVELS:
@@ -218,7 +203,8 @@ class AppendixTexTest(unittest.TestCase):
             self.assertIn(r"\ldzadded", tex)
             self.assertIn("Not in OLD version", tex)
             self.assertIn(r"fig:a\_b", tex)                 # escaped title
-            self.assertIn("v1.zip", tex)
+            self.assertIn(r"\ldzside{ldzold}{OLD}", tex)     # the label, and nothing after it
+            self.assertIn(r"\ldzside{ldznew}{NEW}" + "\\par", tex)
 
     def test_minimal_level_needs_no_extra_packages(self):
         tex = self.tex("minimal")
@@ -287,6 +273,13 @@ class CaptionTest(unittest.TestCase):
     def test_cut_at_a_word_with_an_ellipsis(self):
         segs = E.caption_segments("word " * 50, limit=22)
         self.assertEqual(segs, [("text", "word word word word\u2026")])
+
+    def test_default_cut_is_100_characters(self):
+        segs = E.caption_segments("abcd " * 40)
+        text = "".join(t for _, t in segs)
+        self.assertTrue(text.endswith("\u2026"))
+        self.assertLessEqual(len(text), 101)
+        self.assertGreater(len(text), 90)
 
     def test_maths_is_never_cut(self):
         segs = E.caption_segments("ab " + "$x+y+z$", limit=5)

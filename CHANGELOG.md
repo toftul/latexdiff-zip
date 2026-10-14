@@ -10,6 +10,12 @@ diff PDF names it in its Creator field.
 
 ## [Unreleased]
 
+### Changed
+
+- Figure comparisons: the label of each panel is only OLD or NEW. The archive name or arXiv ID
+  next to it is gone, so the panels are easier to read.
+- Figure comparisons: the caption is cut at 100 characters (was 150).
+
 ### Fixed
 
 - Web UI: a long main `.tex` file name made its list wider than the page. The list now keeps

@@ -43,7 +43,7 @@ The appendix is a LaTeX document of its own, added after the last page of the di
   reliable, the heading uses the `\label`, or else the file name.
 - **Panels.** OLD is always on the left, or on top. Wide figures stack, and tall or square
   figures sit side by side, whichever shows them larger. The engine scales both images to
-  fit the same box. Each panel names its source: the archive file name or the arXiv id.
+  fit the same box.
 - **Added or removed figures** keep both slots. The empty slot is a dashed box that says
   "Not in OLD version" or "Not in NEW version".
 - **Packing.** Comparisons follow the order of the paper. Small ones share a page, and a
