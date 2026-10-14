@@ -85,9 +85,12 @@ log line (`latexdiff-zip X.Y.Z`), the arXiv User-Agent and the PDF's Creator fie
 - Every user-visible change adds a line under `## [Unreleased]` in `CHANGELOG.md`
   (Keep a Changelog sections: Added / Changed / Fixed / Removed), written to `RULES-DOCS.md`.
 - To release: bump `__version__`, rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, add a new
-  empty `[Unreleased]`, update the link references at the bottom, commit, then
-  `git tag -a vX.Y.Z`. A changed CLI option or output contract is a major bump, a new
-  feature minor, a fix patch.
+  empty `[Unreleased]`, update the link references at the bottom, commit, then run
+  `./tag-release.sh`. It names the tag from `__version__` (never type a tag by hand: a tag
+  lives in git, not in a file, and could drift), refuses a dirty tree or a version with no
+  changelog section, and uses that section as the tag message. It does not push.
+  `test_version.py` also fails if a `v*` tag on HEAD differs from `__version__`. A changed
+  CLI option or output contract is a major bump, a new feature minor, a fix patch.
 - The PDF's Creator is set twice on purpose: `_creator_hook` (a `\AtBeginDocument` hook
   passed on pdflatex's command line, via `\hypersetup` when hyperref is loaded) for a diff
   with no appendix, and a `DOCINFO` pdfmark in the gs merge, because gs lets the later file's

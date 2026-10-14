@@ -1,8 +1,9 @@
 """The version number: one value, everywhere it is shown.
 
 The engine's __version__ is the only place to bump. These tests tie the rest to
-it: the -V flag, the first log line, the newest release in CHANGELOG.md, and the
-web page footer. No LaTeX, no Flask; instant:
+it: the -V flag, the first log line, the newest release in CHANGELOG.md, the web
+page footer, and a release tag on the current commit (tag-release.sh makes that
+tag from __version__). No LaTeX, no Flask; instant:
 
     python3 tests/test_version.py
 """
@@ -10,6 +11,7 @@ web page footer. No LaTeX, no Flask; instant:
 import importlib.util
 import os
 import re
+import shutil
 import subprocess
 import sys
 import unittest
@@ -66,6 +68,17 @@ class VersionTest(unittest.TestCase):
 
     def test_web_page_shows_the_engines_version(self):
         self.assertEqual(webapp.ENGINE_VERSION, VERSION)
+
+    def test_release_tag_on_this_commit_matches(self):
+        # A tag lives in git, not in a file, so it can drift from __version__.
+        # Any vX.Y.Z tag on the commit under test must be this version's.
+        if not shutil.which("git") or not os.path.isdir(os.path.join(ROOT, ".git")):
+            self.skipTest("not a git checkout")
+        p = subprocess.run(["git", "tag", "--points-at", "HEAD", "--list", "v[0-9]*"],
+                           cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           text=True)
+        for tag in p.stdout.split():
+            self.assertEqual(tag, f"v{VERSION}", "tag and __version__ disagree")
 
 
 if __name__ == "__main__":
