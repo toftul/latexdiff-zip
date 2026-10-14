@@ -10,6 +10,17 @@ diff PDF names it in its Creator field.
 
 ## [Unreleased]
 
+### Added
+
+- Each page of the diff PDF has a small gray label at the bottom right: "Made with
+  latexdiff-zip vX.Y.Z · latexdiff.toftul.net · github.com/toftul/latexdiff-zip". Both
+  addresses are links. A page too narrow for the label shows the website only. Beamer slides
+  get no label, because their own navigation fills that corner.
+
+### Changed
+
+- The "Figure changes" footer of the appendix moves down to the line of the page label.
+
 ## [2.3.2] - 2026-10-14
 
 ### Changed

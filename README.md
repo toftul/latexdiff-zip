@@ -26,6 +26,8 @@ Right: the appendix compares each changed figure, OLD next to NEW.*
   - Each comparison shows the figure number, its page in the diff, and its caption.
   - The words OLD and NEW label every panel, so color is not the only signal.
   - All text is real text that you can search and copy. Vector figures stay vector.
+- **A small label** at the bottom right of each page, with the version of latexdiff-zip
+  that made the PDF and links to this website and repository.
 
 ## Run it yourself
 

@@ -365,6 +365,12 @@ def _make_test(case):
                     creator = pdf_info(out_pdf, "Creator")
                     self.assertTrue(creator.startswith("latexdiff-zip "),
                                     f"PDF Creator is {creator!r}{ctx}")
+                    # ... and labels each page with it, once, at the bottom.
+                    if HAVE_PDFTOTEXT:
+                        n_pages = pdf_pages(out_pdf)
+                        n_labels = pdf_text(out_pdf).count("latexdiff.toftul.net")
+                        self.assertEqual(n_labels, n_pages,
+                                         f"{n_labels} page labels on {n_pages} pages{ctx}")
                     if case.pdf_title is not None:
                         title = pdf_info(out_pdf, "Title")
                         self.assertEqual(title, case.pdf_title, f"PDF Title{ctx}")

@@ -92,7 +92,8 @@ without it the import fails silently. `tests/test_version.py` checks that, and f
   written to `RULES-DOCS.md`. Do **not** bump `__version__` per change: entries pile up under
   `[Unreleased]`, and a release happens only when the user asks for one.
 - To release: bump `__version__`, rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, add a new
-  empty `[Unreleased]`, update the link references at the bottom, commit, then run
+  empty `[Unreleased]`, update the link references at the bottom, rerun
+  `examples/make-example.sh` (the picture shows the version in the page label), commit, then run
   `./tag-release.sh`. It names the tag from `__version__` (never type a tag by hand: a tag
   lives in git, not in a file, and could drift), refuses a dirty tree or a version with no
   changelog section, and uses that section as the tag message. It does not push.
@@ -102,6 +103,15 @@ without it the import fails silently. `tests/test_version.py` checks that, and f
   yet; if wanted, `gh release create vX.Y.Z --notes-from-tag` reuses the tag's changelog
   section. Tags `v1.0.0`–`v2.2.0` were back-filled by hand onto older commits (they predate
   `__version__`); `v1-bash` is the same commit as `v1.0.0`.
+- **pdflatex's command line carries TeX ahead of `\input{diff.tex}`**: `_creator_hook` and
+  `stamp_hook`. Keep both there, never in `diff.tex` (latexdiff's output is fragile). The
+  stamp is the page label ("Made with latexdiff-zip vX.Y.Z · site · repo", both links). It
+  draws in the kernel's `shipout/foreground` hook, so it cannot move anything. It measures
+  itself and drops the repository address on narrow pages, and skips beamer
+  (`\usebeamertemplate`), whose navigation fills that corner. The appendix includes the same
+  hook, and its `footskip` puts "Figure changes · A1" on the label's baseline
+  (`STAMP_BASELINE`). The `-c` PNGs have no label. The oracle checks one label per page in
+  every PDF.
 - The PDF's Creator is set twice on purpose: `_creator_hook` (a `\AtBeginDocument` hook
   passed on pdflatex's command line, via `\hypersetup` when hyperref is loaded) for a diff
   with no appendix, and a `DOCINFO` pdfmark in the gs merge, because gs lets the later file's

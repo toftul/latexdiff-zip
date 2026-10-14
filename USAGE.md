@@ -163,6 +163,9 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
 - `-t BLUE` shows the new document with additions in blue. It removes all deleted content:
   text, equations, section headings, references and figures. It does not copy old figures.
   The figure appendix is not changed. It still shows every comparison, removed figures too.
+- Each page gets a small gray label at the bottom right, below the document's own footer:
+  "Made with latexdiff-zip vX.Y.Z", the website, and the GitHub repository. pdflatex adds it
+  when it writes each page, so the diff source is not changed. Beamer slides get no label.
 - `pdflatex` runs without `-halt-on-error`: `latexdiff` markup often trips minor errors, so
   the build pushes through them. If no PDF is produced, the tail of `diff.log` is printed.
 - Each project's main file is detected independently, so the two may have different

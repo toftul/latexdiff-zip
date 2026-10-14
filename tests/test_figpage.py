@@ -216,6 +216,11 @@ class AppendixTexTest(unittest.TestCase):
         self.assertEqual(tex.count(r"\clearpage"), 2)
         self.assertNotIn("Figure changes}", tex)            # no page title
 
+    def test_page_label_on_appendix_pages_but_not_in_png_export(self):
+        self.assertIn(E.stamp_hook(), self.tex("full"))
+        self.assertIn(E.stamp_hook(), self.tex("minimal"))
+        self.assertNotIn("ldzstamp", self.tex("full", single=True))
+
     def test_overview_links_every_comparison(self):
         tex = self.tex("full")
         self.assertIn(r"\pdfbookmark[0]{Figure changes}", tex)
@@ -232,6 +237,18 @@ class AppendixTexTest(unittest.TestCase):
         self.assertNotIn("hyperref", tex)
         self.assertIn(r"\providecommand{\hyperlink}", tex)
         self.assertIn(r"\providecommand{\pdfbookmark}", tex)
+
+
+class StampTest(unittest.TestCase):
+    def test_names_the_version_and_links_the_site(self):
+        hook = E.stamp_hook()
+        self.assertIn(f"Made with latexdiff-zip v{E.__version__}", hook)
+        self.assertIn(r"\ldzlink{https://latexdiff.toftul.net/}{latexdiff.toftul.net}", hook)
+        self.assertIn(r"\ldzlink{https://github.com/toftul/latexdiff-zip}"
+                      r"{github.com/toftul/latexdiff-zip}", hook)
+        self.assertIn("shipout/foreground", hook)
+        self.assertIn(r"\ifdefined\usebeamertemplate\else", hook)    # not on slides
+        self.assertEqual(hook.count("{"), hook.count("}"))
 
 
 class NamesTest(unittest.TestCase):

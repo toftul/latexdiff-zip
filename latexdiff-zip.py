@@ -43,6 +43,8 @@ import zlib
 __version__ = "2.3.2"
 
 UA = f"latexdiff-zip/{__version__} (+https://github.com/toftul/latexdiff-zip)"
+SITE_URL = "https://latexdiff.toftul.net/"
+REPO_URL = "https://github.com/toftul/latexdiff-zip"
 DEVNULL = subprocess.DEVNULL
 
 # latexdiff's default graphics markup ("new-only") comments deleted
@@ -1229,7 +1231,7 @@ def annotate_figures(entries, labels):
 # Preamble of the designed page ("full" and "png" levels). @W@, @H@ and @M@ are
 # the page width, height and margin in bp.
 _APPENDIX_PREAMBLE = r"""\documentclass[10pt]{article}
-\usepackage[paperwidth=@W@bp,paperheight=@H@bp,margin=@M@bp]{geometry}
+\usepackage[paperwidth=@W@bp,paperheight=@H@bp,margin=@M@bp,footskip=@F@bp]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
 \usepackage{tgheros}
@@ -1270,7 +1272,7 @@ _APPENDIX_PREAMBLE = r"""\documentclass[10pt]{article}
 # Preamble of the "minimal" level: base LaTeX only (no font packages, no
 # TikZ), the same macro names, so the body is shared.
 _APPENDIX_PREAMBLE_MINIMAL = r"""\documentclass[10pt]{article}
-\usepackage[paperwidth=@W@bp,paperheight=@H@bp,margin=@M@bp]{geometry}
+\usepackage[paperwidth=@W@bp,paperheight=@H@bp,margin=@M@bp,footskip=@F@bp]{geometry}
 \usepackage{graphicx}
 \usepackage{color}
 \definecolor{ldztext}{rgb}{0,0,0}
@@ -1420,11 +1422,16 @@ def appendix_tex(entries, staged, page, level, single=False):
     line_w = w - 2 * APPENDIX_MARGIN
     text_h = h - 2 * APPENDIX_MARGIN
     pre = _APPENDIX_PREAMBLE_MINIMAL if level == "minimal" else _APPENDIX_PREAMBLE
+    # footskip puts the "Figure changes · A1" footer on the baseline of the
+    # page label (stamp_hook), so the two read as one line.
     pre = (pre.replace("@W@", f"{w:.2f}").replace("@H@", f"{h:.2f}")
-           .replace("@M@", f"{APPENDIX_MARGIN:.2f}"))
+           .replace("@M@", f"{APPENDIX_MARGIN:.2f}")
+           .replace("@F@", f"{APPENDIX_MARGIN - STAMP_BASELINE:.2f}"))
     out = [pre + _APPENDIX_COMMON]
     if single:
-        out.append(r"\pagestyle{empty}")
+        out.append(r"\pagestyle{empty}")       # cropped PNGs: no footer, no label
+    else:
+        out.append(stamp_hook())
     out += [r"\begin{document}", r"\color{ldztext}"]
     if not single:
         out.append(_appendix_overview(entries))
@@ -1562,9 +1569,51 @@ def _creator_hook():
             + r"}}\else\pdfinfo{/Creator (" + creator + r")}\fi}")
 
 
+# Baseline of the page label, above the bottom edge of the page.
+STAMP_BASELINE = 9.0               # bp
+
+
+def stamp_hook():
+    """TeX code that prints a small label at the bottom right of every page:
+    "Made with latexdiff-zip vX.Y.Z · latexdiff.toftul.net ·
+    github.com/toftul/latexdiff-zip", grey, in the document's own sans serif,
+    both addresses links. A page too narrow for that (an 8 cm demo page)
+    drops the GitHub address; the label measures itself to decide.
+
+    It draws in LaTeX's shipout/foreground hook, so it needs no change to the
+    latexdiff output and cannot move anything on the page. 9 bp up from the
+    edge it sits under every class's own footer. Skipped on beamer slides,
+    whose navigation symbols and footlines fill that corner, and on a LaTeX
+    older than the hook (2020-10)."""
+    def link(url):
+        return rf"\ldzlink{{{url}}}{{{url.split('//', 1)[1].rstrip('/')}}}"
+    sep = r"\enspace$\cdot$\enspace "
+    short = f"Made with latexdiff-zip v{__version__}" + sep + link(SITE_URL)
+    return (
+        r"\ifdefined\AddToHook"
+        r"\def\ldzpagewd{\ifdim\pdfpagewidth>0pt \pdfpagewidth\else\paperwidth\fi}"
+        r"\def\ldzpageht{\ifdim\pdfpageheight>0pt \pdfpageheight\else\paperheight\fi}"
+        r"\def\ldzlink#1#2{\pdfstartlink attr{/Border[0 0 0]}"
+        r"user{/Subtype/Link/A<</Type/Action/S/URI/URI(#1)>>}#2\pdfendlink}"
+        r"\def\ldzplain#1#2{#2}"
+        r"\def\ldzshort{" + short + "}"
+        r"\def\ldzfull{" + short + sep + link(REPO_URL) + "}"
+        r"\def\ldzstamp{\ifdefined\usebeamertemplate\else{"
+        r"\normalfont\sffamily\fontsize{6.5}{8}\selectfont"
+        r"\ifdefined\color\color[gray]{0.42}\fi"
+        r"\setbox0\hbox{\let\ldzlink\ldzplain\ldzfull}"
+        r"\ifdim\wd0>\dimexpr\ldzpagewd-24bp\relax\let\ldzlabel\ldzshort"
+        r"\else\let\ldzlabel\ldzfull\fi"
+        r"\put(0,0){\smash{\raisebox{"
+        rf"-\dimexpr\ldzpageht-{STAMP_BASELINE}bp\relax}}{{"
+        r"\makebox[\ldzpagewd][r]{\ldzlabel\hspace{12bp}}}}}}\fi}"
+        r"\AddToHook{shipout/foreground}{\ldzstamp}\fi"
+    )
+
+
 def runtex(build):
     subprocess.run(["pdflatex", "-interaction=nonstopmode", "-jobname=diff",
-                    _creator_hook() + r"\input{diff.tex}"],
+                    _creator_hook() + stamp_hook() + r"\input{diff.tex}"],
                    cwd=build, stdout=DEVNULL, stderr=DEVNULL)
 
 
