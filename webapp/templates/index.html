@@ -59,8 +59,10 @@
   h1 a:hover code, h1 a:focus-visible code { background: var(--drop-hover); }
   h1 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
   p.lead { margin: 0 0 1.5rem; color: var(--muted); }
-  .drops { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-  @media (max-width: 520px) { .drops { grid-template-columns: 1fr; } }
+  /* Two-column rows use minmax(0, 1fr): a plain 1fr column grows to fit its
+     content, so one long file name pushed a field past the card's edge. */
+  .drops { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+  @media (max-width: 520px) { .drops { grid-template-columns: minmax(0, 1fr); } }
   .drop {
     border: 2px dashed var(--border); border-radius: 12px;
     padding: 1.25rem 1rem; text-align: center; cursor: pointer;
@@ -80,10 +82,10 @@
   .drop .hint { color: var(--muted); font-size: .85rem; margin-top: .35rem; word-break: break-all; }
   .drop input[type=file] { display: none; }
   /* Per-side "…or paste an arXiv ID" fields, aligned under the drop zones. */
-  .arxiv-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.6rem; }
-  @media (max-width: 520px) { .arxiv-row { grid-template-columns: 1fr; } }
+  .arxiv-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; margin-top: 0.6rem; }
+  @media (max-width: 520px) { .arxiv-row { grid-template-columns: minmax(0, 1fr); } }
   .arxiv-row input {
-    padding: .5rem .6rem; border: 2px dashed var(--border); border-radius: 8px;
+    min-width: 0; text-overflow: ellipsis; padding: .5rem .6rem; border: 2px dashed var(--border); border-radius: 8px;
     font: inherit; font-size: .85rem; background: transparent; color: var(--ink);
     text-align: center; transition: border-color .15s, background .15s;
   }
@@ -93,14 +95,15 @@
   }
   details { margin: 1.25rem 0 0; border-top: 1px solid var(--border); padding-top: 1rem; }
   summary { cursor: pointer; color: var(--accent); font-size: .92rem; }
-  .field { margin-top: .9rem; display: flex; flex-direction: column; gap: .3rem; }
+  .field { margin-top: .9rem; display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
   .field label { font-size: .85rem; color: var(--muted); }
   .field input[type=text], .field select {
     padding: .55rem .6rem; border: 1px solid var(--border); border-radius: 8px; font: inherit;
+    width: 100%; min-width: 0; text-overflow: ellipsis;
   }
   /* Two main-.tex fields side by side, mirroring the OLD/NEW drop zones. */
-  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-  @media (max-width: 520px) { .field-row { grid-template-columns: 1fr; } }
+  .field-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+  @media (max-width: 520px) { .field-row { grid-template-columns: minmax(0, 1fr); } }
   .field label strong.old { color: var(--old); }
   .field label strong.new { color: var(--new); }
   .field label .dim { font-weight: 400; opacity: .85; }
@@ -301,7 +304,7 @@
 
   <figure class="example" id="example">
     <figcaption>Example output</figcaption>
-    <img src="{{ url_for('static', filename='diff_example.png') }}"
+    <img src="{{ url_for('static', filename='diff_example.png', v=version) }}"
          alt="Example diff PDF: on the left, old text in red strikethrough and new text underlined in blue; on the right, a figure comparison headed Changed, Figure 1, with the OLD and NEW photos labeled side by side"
          loading="lazy">
   </figure>
@@ -399,6 +402,7 @@
         p.sel.appendChild(o);
       });
     p.sel.value = '';
+    p.sel.title = '';
     p.txt.value = '';
     p.txt.hidden = true;
   }
@@ -480,6 +484,8 @@
   ['old', 'new'].forEach(function (side) {
     var p = pickerParts(side);
     p.sel.addEventListener('change', function () {
+      // A long name is cut short with an ellipsis; hovering shows all of it.
+      p.sel.title = p.sel.value && p.sel.value !== OTHER ? p.sel.value : '';
       if (p.sel.value === OTHER) {
         p.txt.hidden = false;
         p.txt.focus();

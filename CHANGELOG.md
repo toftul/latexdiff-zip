@@ -10,6 +10,13 @@ diff PDF names it in its Creator field.
 
 ## [Unreleased]
 
+### Fixed
+
+- Web UI: a long main `.tex` file name made its list wider than the page. The list now keeps
+  its half of the row and ends a long name with "…". Hover over it to see the full name.
+- Web UI: after a release, browsers could show the old example picture for up to four hours.
+  Its URL now includes the version, so a new release loads the new picture.
+
 ## [2.3.1] - 2026-10-14
 
 ### Fixed
