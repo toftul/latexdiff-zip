@@ -55,6 +55,7 @@ extract path of either engine.
 | `figure-added` / `figure-removed` | A one-sided figure is an Added / Removed comparison with a placeholder in the missing slot (probed as text). |
 | `figure-renamed` | A figure renamed under `\graphicspath{{figs/}}`: the old file is copied in, so the deleted `\includegraphics` still renders. |
 | `figure-commented-unlabelled` | Commented-out figures are ignored, and a new labelled figure is not paired by position with a deleted unlabelled one (1 added, 1 removed, none changed). |
+| `dirac-diff` | The README example (a swapped portrait): the comparison is titled by figure number and caption, carries its page in the diff, and the appendix adds its own bookmarks. |
 | `figure-packing` | Two square comparisons (one changed, one added) pack onto one appendix page: the PDF has exactly 2 pages. |
 | `revtex-bib-commented` | REVTeX + `.bib` with a commented-out second `\bibliography`: each reference is printed once (no expanded commented copy, no adopted `.bbl` appended by REVTeX). |
 | `figure-pdf-over-png` | `plot.pdf` and `plot.png` side by side, only the PDF edited: the engine compares the file pdflatex draws (`.pdf` first), so 1 changed. |
@@ -67,6 +68,20 @@ dir, so runs never dirty the fixtures.
 
 The two network-only cases (`arxiv_natbib`, `arxiv_oldstyle_selfdiff`) take
 arXiv ids directly and are not stored as fixtures.
+
+## `test_figpage.py`
+
+Unit tests for the figure appendix's pure helpers in the engine: the page size
+it picks, side by side vs stacked, the OLD/NEW source labels, LaTeX escaping,
+captions as plain text, figure numbers and pages read from the `.aux`, the
+document order of the comparisons, and the generated LaTeX at each fallback
+level (not compiled). No LaTeX and no ImageMagick; it runs instantly:
+
+```sh
+python3 tests/test_figpage.py
+```
+
+The typeset result itself is covered end to end by the `figure_*` oracle cases.
 
 ## `test_mains.py`
 

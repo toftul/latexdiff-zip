@@ -161,6 +161,19 @@ optional deps are missing — never make these hard requirements.
   `/MediaBox`, inflating pdfTeX's object streams) between A5 and A3; anything else gets A4 in
   the paper's orientation (`appendix_page_size`). Each panel names its source (`side_labels`:
   archive name or `arXiv:id`, plus the main `.tex` when both sides share a name).
+- **What a comparison says about its figure.** Page A1 opens with an overview table (status,
+  figure, page in the diff, appendix page; rows link to their comparison), and the appendix
+  adds a "Figure changes" bookmark with one child per comparison — hyperref and links
+  survive only because the merge is `gs`. Each heading is `entry_ident` ("Figure N", else
+  the `\label`, else the file; plus "panel i of n" for one image of a multi-image figure),
+  "p. N in the diff", and the caption as **plain text** (`caption_segments`: commands
+  dropped, maths kept as TeX source) — typesetting the real caption would need the paper's
+  macros. Numbers and pages come from the diff build's `.aux` (`read_aux_labels`), and only
+  where they can be trusted: a label `diff.log` reports as multiply defined is ignored
+  (latexdiff can merge two float environments, and the last definition wins); a number is
+  shown only when the `\label` follows the `\caption`, and never for a removed figure (its
+  label sits in deleted markup and picks up the section number). The page is always the
+  printed `\thepage`.
 - **The appendix has its own fallback ladder** (`build_fig_appendix`): `full` (designed page,
   original files) → `png` (same design, rasterised figures: one file pdflatex chokes on) →
   `minimal` (base LaTeX only, same macro names: a missing font or TikZ). A level passes only

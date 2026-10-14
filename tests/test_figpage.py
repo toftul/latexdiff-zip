@@ -195,10 +195,12 @@ class AppendixTexTest(unittest.TestCase):
         ref = {"label": "fig:a_b", "path": "figs/a_b", "pos": 0}
         return [
             {"status": "changed", "name": "fig_a_b", "old_ref": ref, "new_ref": ref,
-             "old": "o.png", "new": "n.png", "old_aspect": 1.0, "new_aspect": 1.0},
+             "old": "o.png", "new": "n.png", "old_aspect": 1.0, "new_aspect": 1.0,
+             "number": None, "page": None, "caption": ""},
             {"status": "added", "name": "fig_c", "old_ref": None,
              "new_ref": {"label": "", "path": "c", "pos": 9},
-             "old": None, "new": "c.png", "old_aspect": None, "new_aspect": 2.0},
+             "old": None, "new": "c.png", "old_aspect": None, "new_aspect": 2.0,
+             "number": "2", "page": "4", "caption": "An $a_b$ plot."},
         ]
 
     def tex(self, level, **kw):
@@ -228,9 +230,119 @@ class AppendixTexTest(unittest.TestCase):
         self.assertEqual(tex.count(r"\clearpage"), 2)
         self.assertNotIn("Figure changes}", tex)            # no page title
 
+    def test_overview_links_every_comparison(self):
+        tex = self.tex("full")
+        self.assertIn(r"\pdfbookmark[0]{Figure changes}", tex)
+        for i in (0, 1):
+            self.assertIn(rf"\hyperlink{{ldz{i}}}", tex)
+            self.assertIn(rf"\pageref{{ldz{i}}}", tex)
+            self.assertIn(rf"\hypertarget{{ldz{i}}}", tex)
+        self.assertIn(r"p.~4 in the diff", tex)
+        self.assertIn(r"Figure 2", tex)
+        self.assertIn(r"\ldzcaption{An \ldzmath{\$a\_b\$} plot.}", tex)
+
+    def test_minimal_level_stubs_the_hyperref_commands(self):
+        tex = self.tex("minimal")
+        self.assertNotIn("hyperref", tex)
+        self.assertIn(r"\providecommand{\hyperlink}", tex)
+        self.assertIn(r"\providecommand{\pdfbookmark}", tex)
+
+
+class NamesTest(unittest.TestCase):
+    @staticmethod
+    def entry(name, panel=(1, 1)):
+        ref = {"label": "", "path": name, "pos": 0, "panel": panel}
+        return {"status": "changed", "name": name, "old_ref": ref, "new_ref": ref}
+
     def test_unique_names(self):
-        es = [{"name": "fig_p"}, {"name": "fig_p"}, {"name": "x"}]
-        self.assertEqual(E._unique_names(es), ["fig_p", "fig_p-2", "x"])
+        es = [self.entry("fig_p", (1, 3)), self.entry("fig_p", (3, 3)),
+              self.entry("x"), self.entry("x")]
+        self.assertEqual(E._unique_names(es), ["fig_p-p1", "fig_p-p3", "x", "x-2"])
+
+    def test_ident(self):
+        ref = {"label": "fig:a", "path": "figs/a", "panel": (2, 3)}
+        e = {"status": "changed", "old_ref": ref, "new_ref": ref, "number": "4"}
+        self.assertEqual(E.entry_ident(e), "Figure 4 \u00b7 panel 2 of 3")
+        e["number"] = None
+        ref["panel"] = (1, 1)
+        self.assertEqual(E.entry_ident(e), "fig:a")
+        ref["label"] = ""
+        self.assertEqual(E.entry_ident(e), "figs/a")
+
+
+class CaptionTest(unittest.TestCase):
+    def test_commands_dropped_maths_kept(self):
+        segs = E.caption_segments(
+            r"Transmission of \textbf{gold} films, $T(\lambda)$ vs.~$d$ "
+            r"(see Ref.~\cite{x}, Fig.~\ref{f})\label{fig:a}")
+        self.assertEqual(segs, [
+            ("text", "Transmission of gold films, "), ("math", r"$T(\lambda)$"),
+            ("text", " vs. "), ("math", "$d$"),
+            ("text", " (see Ref. [\u2026], Fig. \u2026)")])
+
+    def test_accents_and_escapes(self):
+        self.assertEqual(E.caption_segments(r'Schr\"odinger, Erd\H{o}s~--- 50\% \& more'),
+                         [("text", "Schr\u00f6dinger, Erd\u0151s --- 50% & more")])
+
+    def test_cut_at_a_word_with_an_ellipsis(self):
+        segs = E.caption_segments("word " * 50, limit=22)
+        self.assertEqual(segs, [("text", "word word word word\u2026")])
+
+    def test_maths_is_never_cut(self):
+        segs = E.caption_segments("ab " + "$x+y+z$", limit=5)
+        self.assertEqual(segs, [("text", "ab\u2026")])
+
+    def test_empty(self):
+        self.assertEqual(E.caption_segments(""), [])
+        self.assertEqual(E.caption_segments(r"\label{x}"), [])
+
+
+class AuxLabelsTest(unittest.TestCase):
+    def labels(self, aux, log=""):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        for name, text in (("diff.aux", aux), ("diff.log", log)):
+            with open(os.path.join(d, name), "w") as f:
+                f.write(text)
+        return E.read_aux_labels(os.path.join(d, "diff.aux"), os.path.join(d, "diff.log"))
+
+    def test_plain_and_hyperref_forms(self):
+        got = self.labels("\\newlabel{fig:a}{{1}{2}}\n"
+                          "\\newlabel{fig:b}{{3}{iv}{Beta}{figure.3}{}}\n"
+                          "\\newlabel{fig:c}{{}{5}{}{}{}}\n")
+        self.assertEqual(got, {"fig:a": ("1", "2"), "fig:b": ("3", "iv"),
+                               "fig:c": ("", "5")})
+
+    def test_untrustworthy_labels_are_dropped(self):
+        got = self.labels("\\newlabel{fig:c}{{2}{1}}\n\\newlabel{fig:c}{{3}{1}}\n"
+                          "\\newlabel{fig:m}{{\\relax 2}{1}}\n",
+                          "LaTeX Warning: Label `fig:c' multiply defined.\n")
+        self.assertEqual(got, {})
+
+    def test_annotate(self):
+        def entry(status, numbered):
+            ref = {"label": "fig:a", "path": "a", "caption": "Cap.", "numbered": numbered}
+            return {"status": status, "old_ref": ref, "new_ref": ref}
+        labels = {"fig:a": ("2", "7")}
+        es = [entry("changed", True), entry("changed", False), entry("removed", True)]
+        E.annotate_figures(es, labels)
+        self.assertEqual([(e["number"], e["page"]) for e in es],
+                         [("2", "7"), (None, "7"), (None, "7")])
+        self.assertEqual(es[0]["caption"], "Cap.")
+
+
+class ParseRefsTest(unittest.TestCase):
+    def test_caption_numbering_and_panels(self):
+        refs = E._parse_refs(
+            "\\begin{figure}\\includegraphics{a}\\includegraphics{b}"
+            "\\caption{Two \\emph{panels}.}\\label{fig:ab}\\end{figure}\n"
+            "\\begin{figure}\\label{fig:c}\\includegraphics{c}\\caption{Label first.}"
+            "\\end{figure}\n")
+        self.assertEqual([(r["path"], r["panel"], r["numbered"], r["caption"]) for r in refs], [
+            ("a", (1, 2), True, r"Two \emph{panels}."),
+            ("b", (2, 2), True, r"Two \emph{panels}."),
+            ("c", (1, 1), False, "Label first."),
+        ])
 
 
 if __name__ == "__main__":

@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import unicodedata
 import urllib.request
 import zipfile
 import zlib
@@ -543,6 +544,7 @@ _IG_RE = re.compile(r"\\includegraphics(?:\s*\[[^\]]*\])?\s*\{([^}]+)\}")
 _LABEL_RE = re.compile(r"\\label\s*\{([^}]+)\}")
 _FIGBEG_RE = re.compile(r"\\begin\{(?:figure\*?|wrapfigure\*?|subfigure\*?)\}")
 _FIGEND_RE = re.compile(r"\\end\{(?:figure\*?|wrapfigure\*?|subfigure\*?)\}")
+_CAPTION_RE = re.compile(r"\\caption(?![a-zA-Z@])\s*(?:\[[^\]]*\])?")
 _GRAPHICSPATH_RE = re.compile(r"\\graphicspath\s*")
 
 
@@ -671,16 +673,32 @@ def _parse_refs(text):
             stack.append(p)
         elif stack:
             spans.append((stack.pop(), p))
-    refs = []
+    # Each ref also records its environment's caption (the long form, as
+    # TeX source), whether the label comes after the caption -- only then
+    # does \ref give the figure number; before it, LaTeX's classic slip, it
+    # gives the section's -- and which panel of the environment it is.
+    refs, by_env = [], {}
     for igm in _IG_RE.finditer(text):
         pos = igm.start()
         env = max((sp for sp in spans if sp[0] < pos < sp[1]),
                   key=lambda sp: sp[0], default=None)
-        label = ""
+        label, caption, numbered = "", "", False
         if env is not None:
-            lbls = _LABEL_RE.findall(text[env[0]:env[1]])
-            label = lbls[0] if lbls else ""
-        refs.append({"label": label, "path": igm.group(1).strip(), "pos": pos})
+            body = text[env[0]:env[1]]
+            lbls = list(_LABEL_RE.finditer(body))
+            label = lbls[0].group(1) if lbls else ""
+            cm = _CAPTION_RE.search(body)
+            if cm:
+                caption = _read_group(body, cm.end())[0] or ""
+                numbered = bool(lbls) and lbls[0].start() > cm.start()
+        ref = {"label": label, "path": igm.group(1).strip(), "pos": pos,
+               "caption": caption, "numbered": numbered, "panel": (1, 1)}
+        refs.append(ref)
+        if env is not None:
+            by_env.setdefault(env, []).append(ref)
+    for group in by_env.values():
+        for i, ref in enumerate(group):
+            ref["panel"] = (i + 1, len(group))
     return refs
 
 
@@ -833,13 +851,14 @@ def copy_old_figures(old_root, old_flat, new_flat, build):
     return n
 
 
-def compare_figures(old_root, new_root, old_flat, new_flat, tmp):
+def compare_figures(old_root, new_root, old_flat, new_flat, tmp, labels=None):
     """Return the figure changes to show, in document order: match_figures'
     entries with each present side rasterised ("old_png"/"new_png") and its
     shape recorded ("old_aspect"/"new_aspect", width over height). Edited pairs
     whose rasterised pixels are identical -- only the file bytes changed -- are
-    dropped. Degrades to an empty list (with a warning) when ImageMagick is
-    absent."""
+    dropped. `labels` (read_aux_labels of the diff build) adds each figure's
+    number and page (annotate_figures). Degrades to an empty list (with a
+    warning) when ImageMagick is absent."""
     if not (which("magick") or which("convert")):
         warn("warning: ImageMagick not found; skipping figure comparison")
         return []
@@ -848,7 +867,9 @@ def compare_figures(old_root, new_root, old_flat, new_flat, tmp):
 
     shown = []
     counts = {"changed": 0, "added": 0, "removed": 0}
-    for i, e in enumerate(match_figures(old_root, new_root, old_flat, new_flat)):
+    entries = match_figures(old_root, new_root, old_flat, new_flat)
+    annotate_figures(entries, labels or {})
+    for i, e in enumerate(entries):
         ok = True
         for side in ("old", "new"):
             e[side + "_png"] = e[side + "_aspect"] = None
@@ -866,7 +887,9 @@ def compare_figures(old_root, new_root, old_flat, new_flat, tmp):
             continue
         if e["status"] == "changed" and _visually_identical(e["old_png"], e["new_png"]):
             continue                               # same pixels, only bytes changed
-        say(f"  figure {e['status']}: {e['name']}")
+        where = ", ".join(x for x in (e["number"] and f"Figure {e['number']}",
+                                      e["page"] and f"p. {e['page']}") if x)
+        say(f"  figure {e['status']}: {e['name']}" + (f" ({where})" if where else ""))
         counts[e["status"]] += 1
         shown.append(e)
 
@@ -1015,10 +1038,195 @@ def tex_escape(text):
     return "".join(out)
 
 
-def entry_title(e):
-    """The heading of one comparison: the figure's \\label, else its file."""
-    ref = e["new_ref"] or e["old_ref"]
-    return ref["label"] or os.path.basename(ref["path"])
+def _ref_of(e):
+    """The ref an entry is described by: NEW's, except for a removed figure."""
+    return e["old_ref"] if e["status"] == "removed" else e["new_ref"]
+
+
+def entry_ident(e):
+    """What a comparison is called: "Figure N" when the number is certain,
+    else the figure's \\label, else its file as written; plus "panel i of n"
+    for one image of a multi-image figure."""
+    ref = _ref_of(e)
+    ident = f"Figure {e['number']}" if e.get("number") else (ref["label"] or ref["path"])
+    i, n = ref.get("panel", (1, 1))
+    return ident + (f" \u00b7 panel {i} of {n}" if n > 1 else "")
+
+
+# ---- captions as plain text -----------------------------------------------
+#
+# A caption is quoted in the appendix as plain text: commands are dropped (an
+# argument-taking one keeps its last argument's text), maths stays as its TeX
+# source. Typesetting the real caption would need the paper's own macros.
+
+_MATH_RE = re.compile(r"\$\$.+?\$\$|(?<!\\)\$(?:\\.|[^$\\])+\$|\\\(.+?\\\)|\\\[.+?\\\]", re.S)
+_ACCENTS = {"'": "\u0301", "`": "\u0300", "^": "\u0302", '"': "\u0308",
+            "~": "\u0303", "=": "\u0304", ".": "\u0307", "c": "\u0327",
+            "v": "\u030c", "u": "\u0306", "H": "\u030b", "r": "\u030a"}
+_CMD_WORDS = {"ldots": "\u2026", "dots": "\u2026", "textellipsis": "\u2026",
+              "LaTeX": "LaTeX", "TeX": "TeX", "ss": "\u00df", "textendash": "\u2013",
+              "textemdash": "\u2014", "S": "\u00a7", "P": "\u00b6"}
+_CMD_DROP = {"label", "footnote", "footnotemark", "index", "protect", "centering",
+             "vspace", "hspace", "phantom", "linebreak", "newline", "nocite",
+             "hfill", "vfill", "noindent", "relax"}
+_CMD_CITE = {"cite", "citep", "citet", "citealp", "citealt", "citeauthor",
+             "citeyear", "parencite", "textcite", "autocite", "footcite"}
+_CMD_REF = {"ref", "eqref", "autoref", "cref", "Cref", "pageref", "vref",
+            "subref", "nameref"}
+_CTRL_RE = re.compile(r"\\([a-zA-Z@]+)\*?|\\(.)", re.S)
+
+
+def _tex_to_text(s):
+    """TeX source (no maths) to the text it would print, roughly."""
+    out, i, n = [], 0, len(s)
+    while i < n:
+        c = s[i]
+        if c in "{}":
+            i += 1
+            continue
+        if c == "~":
+            out.append(" ")
+            i += 1
+            continue
+        if c != "\\":
+            out.append(c)
+            i += 1
+            continue
+        m = _CTRL_RE.match(s, i)
+        if m is None:                              # a lone trailing backslash
+            break
+        i = m.end()
+        name = m.group(1) or m.group(2)
+        if name in _ACCENTS and (m.group(2) or name in "cvuHr"):
+            arg, j = _read_group(s, i)
+            if arg is None:
+                arg, j = s[i:i + 1], i + 1
+            base = _tex_to_text(arg)
+            if base:
+                out.append(unicodedata.normalize("NFC", base[0] + _ACCENTS[name]) + base[1:])
+            i = j
+            continue
+        if m.group(2) is not None:                 # \% \& \_ ... or a spacing command
+            out.append(name if name in "%&_#${}" else " ")
+            continue
+        groups = []                                # optional [..] then {..} arguments
+        while True:
+            k = i
+            while k < n and s[k] in " \t\n":
+                k += 1
+            if k < n and s[k] == "[" and not groups:
+                close = s.find("]", k)
+                if close < 0:
+                    break
+                i = close + 1
+                continue
+            if k < n and s[k] == "{":
+                g, j = _read_group(s, k)
+                if g is None:
+                    break
+                groups.append(g)
+                i = j
+                continue
+            break
+        if name in _CMD_WORDS:
+            out.append(_CMD_WORDS[name])
+        elif name in _CMD_CITE:
+            out.append("[\u2026]")
+        elif name in _CMD_REF:
+            out.append("\u2026")
+        elif name not in _CMD_DROP and groups:
+            out.append(_tex_to_text(groups[-1]))
+    return "".join(out)
+
+
+def caption_segments(raw, limit=150):
+    """A caption as [(kind, text)], kind "text" or "math" (TeX source),
+    whitespace collapsed and cut to about `limit` characters at a word
+    boundary, with an ellipsis. Maths is never cut in half."""
+    parts, pos = [], 0
+    for m in _MATH_RE.finditer(raw):
+        parts += [("text", _tex_to_text(raw[pos:m.start()])),
+                  ("math", " ".join(m.group(0).split()))]
+        pos = m.end()
+    parts.append(("text", _tex_to_text(raw[pos:])))
+
+    segs, total = [], 0
+    for kind, t in parts:
+        if kind == "text":
+            t = re.sub(r"\s+", " ", t)
+            if not segs:
+                t = t.lstrip()
+        if not t:
+            continue
+        if total + len(t) > limit:
+            room = t[:max(0, limit - total)] if kind == "text" else ""
+            if " " in room:
+                room = room.rsplit(" ", 1)[0]
+            if not room.strip() and segs and segs[-1][0] == "text":
+                segs[-1] = ("text", segs[-1][1].rstrip() + "\u2026")
+            else:
+                segs.append(("text", room.rstrip() + "\u2026"))
+            return segs
+        segs.append((kind, t))
+        total += len(t)
+    if segs and segs[-1][0] == "text":
+        segs[-1] = ("text", segs[-1][1].rstrip())
+        if not segs[-1][1]:
+            segs.pop()
+    return segs
+
+
+def _caption_tex(segs):
+    return "".join(tex_escape(t) if kind == "text" else r"\ldzmath{" + tex_escape(t) + "}"
+                   for kind, t in segs)
+
+
+# ---- figure numbers and pages from the diff's .aux -------------------------
+
+_NEWLABEL_RE = re.compile(r"\\newlabel\{([^}]*)\}")
+_MULTIPLY_RE = re.compile(r"Label `([^']*)' multiply defined")
+_AUX_VALUE_RE = re.compile(r"[\w.\-]+")
+
+
+def read_aux_labels(aux_path, log_path):
+    """{label: (number, page)} from a LaTeX .aux's \\newlabel lines. number is
+    '' outside a numbered environment; page is the printed page (\\thepage).
+    Left out, because neither can be trusted: a label the log reports as
+    multiply defined (latexdiff can merge two float environments, and then the
+    last definition wins), and any value with macros in it."""
+    text = read_text(aux_path)
+    multiply = set(_MULTIPLY_RE.findall(read_text(log_path)))
+    labels = {}
+    for m in _NEWLABEL_RE.finditer(text):
+        if m.group(1) in multiply:
+            continue
+        outer, _ = _read_group(text, m.end())
+        if outer is None:
+            continue
+        number, p = _read_group(outer, 0)
+        page = _read_group(outer, p)[0] if number is not None else None
+        if page is None:
+            continue
+        number, page = number.strip(), page.strip()
+        if not _AUX_VALUE_RE.fullmatch(page) or (number and not _AUX_VALUE_RE.fullmatch(number)):
+            continue
+        labels[m.group(1)] = (number, page)
+    return labels
+
+
+def annotate_figures(entries, labels):
+    """Give each entry what the appendix says about it besides the images:
+    "number" (only for a changed or added figure whose \\label follows its
+    \\caption -- a removed figure's label sits in deleted markup, where \\ref
+    gives the section number), "page" in the diff (whenever its label is in
+    the .aux), and the "caption" source."""
+    for e in entries:
+        ref = _ref_of(e)
+        number, page = labels.get(ref["label"], ("", None)) if ref["label"] else ("", None)
+        e["number"] = number if (number and ref.get("numbered")
+                                 and e["status"] != "removed") else None
+        e["page"] = page
+        e["caption"] = ref.get("caption", "")
 
 
 # Preamble of the designed page ("full" and "png" levels). @W@, @H@ and @M@ are
@@ -1032,6 +1240,9 @@ _APPENDIX_PREAMBLE = r"""\documentclass[10pt]{article}
 \usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{tikz}
+\usepackage{tabularx}
+\usepackage[hidelinks,pdfpagelabels=false,bookmarksopen=true]{hyperref}
+\usepackage{bookmark}
 \input{glyphtounicode}
 \pdfgentounicode=1
 \definecolor{ldztext}{HTML}{202124}
@@ -1054,6 +1265,7 @@ _APPENDIX_PREAMBLE = r"""\documentclass[10pt]{article}
   text width=#1,align=center,text=ldzmuted,font=\small\itshape]{#3};}
 \newcommand{\ldzfoot}{{\footnotesize\color{ldzmuted}Figure changes
   \enspace\textperiodcentered\enspace\thepage}}
+\newcommand{\ldzrule}{\noalign{\vspace{3bp}{\color{ldzframe}\hrule height 0.4bp}\vspace{4bp}}}
 """
 
 # Preamble of the "minimal" level: base LaTeX only (no font packages, no
@@ -1073,6 +1285,11 @@ _APPENDIX_PREAMBLE_MINIMAL = r"""\documentclass[10pt]{article}
 \newcommand{\ldzimg}[3]{\includegraphics[width=#1,height=#2,keepaspectratio]{#3}}
 \newcommand{\ldzabsent}[3]{\fbox{\parbox[c][#2][c]{#1}{\centering\itshape #3}}}
 \newcommand{\ldzfoot}{Figure changes, page \thepage}
+\usepackage{tabularx}
+\providecommand{\hyperlink}[2]{#2}
+\providecommand{\hypertarget}[2]{#2}
+\providecommand{\pdfbookmark}[3][]{}
+\newcommand{\ldzrule}{\noalign{\vspace{2bp}}\hline\noalign{\vspace{3bp}}}
 """
 
 _APPENDIX_COMMON = r"""\setlength{\parindent}{0pt}
@@ -1086,17 +1303,22 @@ _APPENDIX_COMMON = r"""\setlength{\parindent}{0pt}
 \newcommand{\ldzchanged}{\ldzchip{ldzchg}{$\Delta$\,Changed}}
 \newcommand{\ldzadded}{\ldzchip{ldznew}{$+$\,Added}}
 \newcommand{\ldzremoved}{\ldzchip{ldzold}{$-$\,Removed}}
+\newcommand{\ldzmath}[1]{{\upshape\ttfamily\small #1}}
+\newcommand{\ldzmeta}[1]{\enspace{\color{ldzmuted}\textperiodcentered\enspace #1}}
+\newcommand{\ldzcaption}[1]{{\rmfamily\itshape #1\par}}
+\newcommand{\ldzhead}[1]{\leavevmode{\small\color{ldzmuted}#1}}
 """
 
 _STATUS_MACRO = {"changed": r"\ldzchanged", "added": r"\ldzadded",
                  "removed": r"\ldzremoved"}
+_STATUS_ORDER = ("changed", "added", "removed")
 
 
 def _bp(x):
     return f"{x:.2f}bp"
 
 
-def _appendix_block(e, files, layout, line_w, text_h, sources):
+def _appendix_block(i, e, files, layout, line_w, text_h, sources):
     """LaTeX for one comparison: status and title, then OLD and NEW panels in
     the given layout. `files` maps "old"/"new" to the staged include name (None
     for the missing side of an added or removed figure)."""
@@ -1118,11 +1340,20 @@ def _appendix_block(e, files, layout, line_w, text_h, sources):
             body = rf"\ldzabsent{{{_bp(fit_w)}}}{{{_bp(ph)}}}{{{missing}}}"
         return head + "\\par\\vspace{3bp}\n" + body
 
+    ident = entry_ident(e)
+    head = _STATUS_MACRO[e["status"]] + r"\enspace{\bfseries " + tex_escape(ident) + "}"
+    if e.get("page"):
+        head += r"\ldzmeta{p.~" + tex_escape(e["page"]) + " in the diff}"
     lines = [
         r"\begin{ldzblock}",
-        _STATUS_MACRO[e["status"]] + r"\enspace{\bfseries " + tex_escape(entry_title(e)) + "}\\par",
-        r"\vspace{6bp}",
+        rf"\hypertarget{{ldz{i}}}{{}}\label{{ldz{i}}}%",
+        rf"\pdfbookmark[1]{{{tex_escape(ident)} \textperiodcentered\ {e['status']}}}{{ldzbm{i}}}%",
+        head + r"\par",
     ]
+    segs = caption_segments(e.get("caption") or "")
+    if segs:
+        lines.append(r"\vspace{2bp}\ldzcaption{" + _caption_tex(segs) + "}")
+    lines.append(r"\vspace{6bp}")
     if layout == "side":
         lines += [
             rf"\begin{{minipage}}[t]{{{_bp(box_w)}}}" + panel("old") + r"\end{minipage}\hfill",
@@ -1132,6 +1363,34 @@ def _appendix_block(e, files, layout, line_w, text_h, sources):
         lines += [panel("old") + "\\par\\vspace{9bp}", panel("new")]
     lines.append(r"\end{ldzblock}")
     return "\n".join(lines)
+
+
+def _appendix_overview(entries):
+    """Title, totals and a table with one row per comparison: status, figure
+    (linked to its comparison), its page in the diff, and its appendix page.
+    The top bookmark sits here too."""
+    counts = {s: sum(e["status"] == s for e in entries) for s in _STATUS_ORDER}
+    summary = r"\enspace\textperiodcentered\enspace ".join(
+        f"{counts[s]} {s}" for s in _STATUS_ORDER if counts[s])
+    rows = []
+    for i, e in enumerate(entries):
+        what = tex_escape(entry_ident(e))
+        segs = caption_segments(e.get("caption") or "", limit=70)
+        if segs:
+            what += " --- " + _caption_tex(segs)
+        page = r"p.~" + tex_escape(e["page"]) if e.get("page") else "--"
+        rows.append(rf"{_STATUS_MACRO[e['status']]} & \hyperlink{{ldz{i}}}{{{what}}} & "
+                    rf"{page} & \pageref{{ldz{i}}}\\[2bp]")
+    return "\n".join([
+        r"\pdfbookmark[0]{Figure changes}{ldztop}%",
+        r"{\Large\bfseries Figure changes}\par\vspace{3bp}",
+        r"{\color{ldzmuted}" + summary + r"}\par\vspace{10bp}",
+        r"\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}Xll@{}}",
+        r"\ldzhead{Status} & \ldzhead{Figure} & \ldzhead{In the diff} & \ldzhead{Comparison}\\",
+        r"\ldzrule",
+        *rows,
+        r"\end{tabularx}\par\vspace{22bp}",
+    ])
 
 
 def _stage_figures(entries, figapp, originals):
@@ -1171,17 +1430,11 @@ def appendix_tex(entries, staged, page, sources, level, single=False):
         out.append(r"\pagestyle{empty}")
     out += [r"\begin{document}", r"\color{ldztext}"]
     if not single:
-        counts = {}
-        for e in entries:
-            counts[e["status"]] = counts.get(e["status"], 0) + 1
-        summary = r"\enspace\textperiodcentered\enspace ".join(
-            f"{counts[s]} {s}" for s in ("changed", "added", "removed") if s in counts)
-        out += [r"{\Large\bfseries Figure changes}\par\vspace{3bp}",
-                r"{\color{ldzmuted}" + summary + r"}\par\vspace{16bp}"]
-    for e, files in zip(entries, staged):
+        out.append(_appendix_overview(entries))
+    for i, (e, files) in enumerate(zip(entries, staged)):
         aspects = [e[s + "_aspect"] for s in ("old", "new") if e[s + "_aspect"]]
         layout = choose_layout(aspects, line_w, text_h)
-        out.append(_appendix_block(e, files, layout, line_w, text_h, sources))
+        out.append(_appendix_block(i, e, files, layout, line_w, text_h, sources))
         out.append(r"\clearpage" if single else r"\vspace{20bp plus 8bp minus 6bp}")
     out.append(r"\end{document}")
     return "\n".join(out) + "\n"
@@ -1221,12 +1474,14 @@ def build_fig_appendix(entries, figapp, page, sources):
 
 
 def _unique_names(entries):
-    """One file-name stem per entry: the entry's name, with -2, -3, ... added
-    when several share it (the panels of one multi-panel figure)."""
+    """One file-name stem per entry: the entry's name, plus -p<i> for panel i
+    of a multi-image figure, and -2, -3, ... if stems still collide."""
     seen, names = {}, []
     for e in entries:
-        n = seen[e["name"]] = seen.get(e["name"], 0) + 1
-        names.append(e["name"] if n == 1 else f"{e['name']}-{n}")
+        i, total = _ref_of(e).get("panel", (1, 1)) if "status" in e else (1, 1)
+        stem = e["name"] + (f"-p{i}" if total > 1 else "")
+        n = seen[stem] = seen.get(stem, 0) + 1
+        names.append(stem if n == 1 else f"{stem}-{n}")
     return names
 
 
@@ -1579,7 +1834,9 @@ def main(argv):
         shutil.copy(os.path.join(build, "diff.pdf"), out_pdf)
 
         say("comparing figures...")
-        figs = compare_figures(old_root, new_root, old_flat, new_flat, tmp)
+        labels = read_aux_labels(os.path.join(build, "diff.aux"),
+                                 os.path.join(build, "diff.log"))
+        figs = compare_figures(old_root, new_root, old_flat, new_flat, tmp, labels)
 
         if figs and (embed_figs or fig_dir):
             page = appendix_page_size(pdf_page_size(out_pdf))

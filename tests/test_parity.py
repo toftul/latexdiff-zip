@@ -283,7 +283,17 @@ CASES = [
          new_dir="figure-commented-unlabelled/new",
          need_lines=["figure added: fig_b", "figure removed: u",
                      "figure diff: 1 added, 1 removed"],
-         forbid_lines=["figure changed", "draft"], min_pages=2, max_pages=2),
+         forbid_lines=["figure changed", "draft"], min_pages=3),
+
+    # The README example: a portrait photo swapped. The comparison is headed
+    # by the figure's number and caption, with its page in the diff; the
+    # appendix has its own bookmarks, after the paper's.
+    Case("figure_dirac", old_dir="dirac-diff/old", new_dir="dirac-diff/new",
+         need_lines=["figure changed: fig_man (Figure 1, p. 1)"],
+         probe_present=["Figure 1", "Paul Dirac.", "p. 1 in the diff", "Changed",
+                        "OLD", "NEW", "old.zip", "new.zip"],
+         outline_present=["Figure changes", "Figure 1 \u00b7 changed"],
+         min_pages=2, max_pages=2),
 
     # Comparisons pack: two square figures (one edited, one added) sit side
     # by side and share one appendix page, so the PDF is 1 + 1 pages.
