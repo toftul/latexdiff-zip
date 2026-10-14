@@ -82,8 +82,12 @@ log line (`latexdiff-zip X.Y.Z`), the arXiv User-Agent and the PDF's Creator fie
 `webapp/app.py` imports it for the page footer. `tests/test_version.py` fails if
 `CHANGELOG.md`'s newest dated release is not `__version__`.
 
-- Every user-visible change adds a line under `## [Unreleased]` in `CHANGELOG.md`
-  (Keep a Changelog sections: Added / Changed / Fixed / Removed), written to `RULES-DOCS.md`.
+- `__version__` is a plain module-level string near the top of the engine (not a separate
+  file: the engine ships as one file, via `curl` or the container's `COPY`, with no `.git`).
+- Every user-visible change adds a line under `## [Unreleased]` in `CHANGELOG.md`, **in the
+  same commit as the change** (Keep a Changelog sections: Added / Changed / Fixed / Removed),
+  written to `RULES-DOCS.md`. Do **not** bump `__version__` per change: entries pile up under
+  `[Unreleased]`, and a release happens only when the user asks for one.
 - To release: bump `__version__`, rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, add a new
   empty `[Unreleased]`, update the link references at the bottom, commit, then run
   `./tag-release.sh`. It names the tag from `__version__` (never type a tag by hand: a tag
@@ -91,6 +95,10 @@ log line (`latexdiff-zip X.Y.Z`), the arXiv User-Agent and the PDF's Creator fie
   changelog section, and uses that section as the tag message. It does not push.
   `test_version.py` also fails if a `v*` tag on HEAD differs from `__version__`. A changed
   CLI option or output contract is a major bump, a new feature minor, a fix patch.
+- Publishing is the user's call: `git push origin main vX.Y.Z`. There are no GitHub releases
+  yet; if wanted, `gh release create vX.Y.Z --notes-from-tag` reuses the tag's changelog
+  section. Tags `v1.0.0`–`v2.2.0` were back-filled by hand onto older commits (they predate
+  `__version__`); `v1-bash` is the same commit as `v1.0.0`.
 - The PDF's Creator is set twice on purpose: `_creator_hook` (a `\AtBeginDocument` hook
   passed on pdflatex's command line, via `\hypersetup` when hyperref is loaded) for a diff
   with no appendix, and a `DOCINFO` pdfmark in the gs merge, because gs lets the later file's
