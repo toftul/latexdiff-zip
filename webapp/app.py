@@ -6,6 +6,7 @@ background job, streams its log to the browser live via Server-Sent Events,
 and serves the resulting diff PDF when it is ready.
 """
 
+import importlib.machinery
 import importlib.util
 import os
 import re
@@ -75,20 +76,31 @@ def _safe_name(filename, ext):
 # implementation and one version number, not copies that can drift. The engine
 # is latexdiff-zip.py: the repo-local file in dev, or the installed
 # `latexdiff-zip` on PATH inside the container.
+def _engine_module(path):
+    """Import the engine at `path` as a module, or return None.
+
+    The loader is given explicitly: in the container the engine is
+    /usr/local/bin/latexdiff-zip, with no .py suffix, and
+    spec_from_file_location() alone returns None for that -- the app then fell
+    back silently, with no version in the footer."""
+    try:
+        loader = importlib.machinery.SourceFileLoader("ldz_engine", path)
+        spec = importlib.util.spec_from_file_location("ldz_engine", path, loader=loader)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)       # import-only: the engine guards main()
+    except Exception:
+        return None
+    return mod if callable(getattr(mod, "normalize_arxiv", None)) else None
+
+
 def _load_engine():
     here = os.path.dirname(os.path.abspath(__file__))
     for path in (os.path.normpath(os.path.join(here, "..", "latexdiff-zip.py")),
                  shutil.which("latexdiff-zip")):
-        if not path or not os.path.isfile(path):
-            continue
-        try:
-            spec = importlib.util.spec_from_file_location("ldz_engine", path)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)   # import-only: the engine guards main()
-            if callable(getattr(mod, "normalize_arxiv", None)):
+        if path and os.path.isfile(path):
+            mod = _engine_module(path)
+            if mod is not None:
                 return mod
-        except Exception:
-            continue
     return None
 
 
@@ -110,6 +122,9 @@ def _fallback_arxiv_id(raw):
 
 
 _engine = _load_engine()
+if _engine is None:
+    print("[latexdiff-zip-web] warning: cannot import the latexdiff-zip engine; "
+          "using the fallback arXiv parser and no version", file=sys.stderr, flush=True)
 normalize_arxiv = _engine.normalize_arxiv if _engine else _fallback_arxiv_id
 # Shown in the page footer; empty (and hidden) if the engine can't be found.
 ENGINE_VERSION = getattr(_engine, "__version__", "")

@@ -79,7 +79,9 @@ knobs.
 
 SemVer, with **one source of truth: `__version__` in `latexdiff-zip.py`**. `-V`, the first
 log line (`latexdiff-zip X.Y.Z`), the arXiv User-Agent and the PDF's Creator field read it;
-`webapp/app.py` imports it for the page footer. `tests/test_version.py` fails if
+`webapp/app.py` imports it for the page footer. `_engine_module` passes a `SourceFileLoader`
+explicitly: the installed engine, `/usr/local/bin/latexdiff-zip`, has no `.py` suffix, and
+without it the import fails silently. `tests/test_version.py` checks that, and fails if
 `CHANGELOG.md`'s newest dated release is not `__version__`.
 
 - `__version__` is a plain module-level string near the top of the engine (not a separate

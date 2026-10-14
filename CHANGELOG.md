@@ -10,6 +10,12 @@ diff PDF names it in its Creator field.
 
 ## [Unreleased]
 
+### Fixed
+
+- Web UI: the page in the container showed no version in the footer. The web app could not
+  import the installed engine (a file without the `.py` suffix), so it also used its fallback
+  copy of the arXiv ID parser. It now imports the engine.
+
 ## [2.3.0] - 2026-10-14
 
 ### Added

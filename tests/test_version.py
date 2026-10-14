@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -68,6 +69,17 @@ class VersionTest(unittest.TestCase):
 
     def test_web_page_shows_the_engines_version(self):
         self.assertEqual(webapp.ENGINE_VERSION, VERSION)
+
+    def test_web_app_loads_the_installed_engine(self):
+        # In the container the engine is /usr/local/bin/latexdiff-zip: no .py
+        # suffix. The app must still import it, or the footer loses the
+        # version (and arXiv ids go through the fallback parser).
+        with tempfile.TemporaryDirectory() as d:
+            installed = os.path.join(d, "latexdiff-zip")
+            shutil.copy(ENGINE, installed)
+            mod = webapp._engine_module(installed)
+        self.assertIsNotNone(mod, "the app cannot import a suffix-less engine")
+        self.assertEqual(mod.__version__, VERSION)
 
     def test_release_tag_on_this_commit_matches(self):
         # A tag lives in git, not in a file, so it can drift from __version__.
