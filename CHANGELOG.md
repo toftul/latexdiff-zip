@@ -48,7 +48,7 @@ diff PDF names it in its Creator field.
 - REVTeX with a `.bib` printed each reference two or more times, and citations pointed into
   the extra copy. Each reference is now printed once.
 - Commented-out figures were compared. They are now ignored.
-- A new labelled figure was paired with an unrelated deleted figure. Now a labelled figure
+- A new labeled figure was paired with an unrelated deleted figure. Now a labeled figure
   pairs only by label or by file, else it is reported as added or removed.
 
 ### Removed
