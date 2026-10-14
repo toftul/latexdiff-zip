@@ -44,6 +44,7 @@ CASE_TIMEOUT = int(os.environ.get("LDZ_CASE_TIMEOUT", "300"))
 HAVE_PDFINFO = shutil.which("pdfinfo") is not None
 HAVE_PDFTOTEXT = shutil.which("pdftotext") is not None
 HAVE_PDFIMAGES = shutil.which("pdfimages") is not None
+HAVE_PDFTOHTML = shutil.which("pdftohtml") is not None
 
 
 def script_argv(args):
@@ -86,6 +87,17 @@ def pdf_images(path):
     return sum(1 for line in out.splitlines() if re.match(r"\s*\d+\s+\d+\s+\w", line))
 
 
+def pdf_outline(path):
+    """The PDF's bookmark titles, in order. poppler's pdftohtml -xml prints
+    the outline as <item page="N">title</item>; it is the one poppler tool
+    that reads it."""
+    out = subprocess.run(["pdftohtml", "-xml", "-stdout", "-q", "-i", path],
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                         text=True).stdout
+    block = re.search(r"<outline>.*</outline>", out, re.DOTALL)
+    return re.findall(r"<item[^>]*>([^<]*)</item>", block.group(0)) if block else []
+
+
 def pdf_text(path):
     return subprocess.run(["pdftotext", path, "-"], stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL, text=True).stdout
@@ -101,7 +113,7 @@ class Case:
                  args=(), exit=0, need_lines=(), forbid_lines=(),
                  want_pdf=True, min_pages=1, min_images=0,
                  probe_present=(), probe_absent=(), probe_once=(),
-                 fast=False, network=False):
+                 outline_present=(), fast=False, network=False):
         self.name = name
         self.old_dir = old_dir
         self.new_dir = new_dir
@@ -119,6 +131,7 @@ class Case:
         self.probe_present = probe_present
         self.probe_absent = probe_absent
         self.probe_once = probe_once
+        self.outline_present = outline_present
         self.fast = fast
         self.network = network
 
@@ -248,6 +261,14 @@ CASES = [
          need_lines=["figure changed: fig_plot", "figure diff: 1 changed"],
          min_pages=2),
 
+    # A hyperref paper keeps its own bookmarks once the figure appendix is
+    # merged in. pdfunite dropped the whole outline (and sent every internal
+    # link to page 1); gs keeps it.
+    Case("figure_hyperref_outline",
+         old_dir="figure-hyperref/old", new_dir="figure-hyperref/new",
+         need_lines=["figure diff: 1 changed", "appended"],
+         outline_present=["Introduction", "Conclusion"], min_pages=2),
+
     # A commented-out figure is not part of either version, and a leftover
     # labelled figure is not paired by position with an unrelated one. Before
     # the fix, the commented drafts were parsed as figures, and the deleted
@@ -328,6 +349,12 @@ def _make_test(case):
                         n = text.count(needle)
                         self.assertEqual(n, 1,
                                          f"probe {needle!r} found {n} times, want 1{ctx}")
+                if HAVE_PDFTOHTML and case.outline_present:
+                    outline = pdf_outline(out_pdf)
+                    for title in case.outline_present:
+                        self.assertIn(title, outline,
+                                      f"bookmark {title!r} missing, outline is "
+                                      f"{outline}{ctx}")
             else:
                 self.assertFalse(os.path.exists(out_pdf),
                                  f"unexpected PDF produced{ctx}")

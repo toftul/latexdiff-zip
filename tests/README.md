@@ -31,7 +31,8 @@ Environment knobs:
 
 The full cases each drive a real `pdflatex` build (needs the same tools as the
 CLI: latexdiff, latexpand, pdflatex, bibtex; plus poppler's `pdfinfo`/`pdftotext`
-for the page-count and probe assertions, which are skipped if absent). The
+for the page-count and probe assertions, `pdftohtml` for the bookmark one,
+all skipped if absent). The
 `fast` cases are pure CLI-contract checks with no LaTeX run.
 
 ## Fixtures (`cases/`)
@@ -56,6 +57,7 @@ extract path of either engine.
 | `figure-commented-unlabelled` | Commented-out figures are ignored, and a new labelled figure is not paired by position with a deleted unlabelled one (1 added, 1 removed, none changed). |
 | `revtex-bib-commented` | REVTeX + `.bib` with a commented-out second `\bibliography`: each reference is printed once (no expanded commented copy, no adopted `.bbl` appended by REVTeX). |
 | `figure-pdf-over-png` | `plot.pdf` and `plot.png` side by side, only the PDF edited: the engine compares the file pdflatex draws (`.pdf` first), so 1 changed. |
+| `figure-hyperref` | A hyperref paper keeps its own bookmarks after the figure appendix is merged in (checked with `pdftohtml -xml`). |
 | `figure-multipanel` | Three `\includegraphics` under one `\label`: panels pair one-to-one, so only the edited panel is reported (1 changed, none added/removed). |
 
 Fixtures hold only source (`.tex`/`.bib`, and a shipped `.bbl` where that is the

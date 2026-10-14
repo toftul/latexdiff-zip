@@ -940,16 +940,37 @@ def build_fig_appendix(manifest, outpdf, tmp):
     return True
 
 
+# Ghostscript re-encodes every image as JPEG by default, the paper's own
+# figures included. These settings keep JPEGs byte-for-byte and everything
+# else lossless (Flate), at full resolution. pdfwrite cannot write 16-bit
+# images, so those come out 8-bit -- invisible on screen.
+GS_LOSSLESS = [
+    "-dAutoFilterColorImages=false", "-dColorImageFilter=/FlateEncode",
+    "-dAutoFilterGrayImages=false", "-dGrayImageFilter=/FlateEncode",
+    "-dDownsampleColorImages=false", "-dDownsampleGrayImages=false",
+    "-dDownsampleMonoImages=false",
+    "-dPassThroughJPEGImages=true", "-dPassThroughJPXImages=true",
+]
+
+
 def merge_pdfs(a, b, out):
-    """Concatenate PDFs a and b into out with whichever tool is available."""
+    """Concatenate PDFs a and b into out with whichever tool is available.
+
+    Ghostscript first: it keeps both documents' bookmarks and internal links,
+    shifting the second one's page targets. pdfunite drops the outline and
+    points every internal link at page 1 -- a hyperref paper's own links
+    included -- so it is only the fallback. gs is slower (about 12 s for a
+    100-page paper against well under a second) but the build costs more."""
+    if which("gs"):
+        ok = subprocess.run(
+            ["gs", "-q", "-dNOPAUSE", "-dBATCH", "-sDEVICE=pdfwrite",
+             *GS_LOSSLESS, f"-sOutputFile={out}", a, b],
+            stdout=DEVNULL, stderr=DEVNULL).returncode == 0
+        if ok and os.path.isfile(out):
+            return True
     if which("pdfunite"):
         return subprocess.run(["pdfunite", a, b, out],
                               stdout=DEVNULL, stderr=DEVNULL).returncode == 0
-    if which("gs"):
-        return subprocess.run(
-            ["gs", "-q", "-dNOPAUSE", "-dBATCH", "-sDEVICE=pdfwrite",
-             f"-sOutputFile={out}", a, b], stdout=DEVNULL, stderr=DEVNULL
-        ).returncode == 0
     return False
 
 

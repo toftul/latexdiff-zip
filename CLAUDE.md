@@ -139,9 +139,14 @@ optional deps are missing — never make these hard requirements.
   PDF whose only change is a `/CreationDate` from producing a spurious collage.
 - `_im`/`_im_identify` wrap ImageMagick, preferring v7 `magick` over v6 `convert`/`identify`.
 - Collages are built as PNGs (any source format is rasterised first), then **embedded by
-  building a separate standalone appendix PDF and merging it** (`pdfunite`, falling back to
-  `gs`) — rather than injecting into the fragile latexdiff source. `-F` disables embedding;
-  `-c DIR` also writes the PNGs to a folder.
+  building a separate standalone appendix PDF and merging it** — rather than injecting into
+  the fragile latexdiff source. `-F` disables embedding; `-c DIR` also writes the PNGs to a
+  folder.
+- **The merge is `gs` first, `pdfunite` only as a fallback.** pdfunite drops the outline and
+  sends every internal link to page 1 — a hyperref paper's own links too — while `gs` keeps
+  both documents' bookmarks and links (oracle case `figure_hyperref_outline`). `GS_LOSSLESS`
+  is not optional: by default gs re-encodes every image, the paper's figures included, as
+  JPEG. gs costs about 12 s on a 100-page paper; don't swap the order back for speed.
 
 **Container layering:** `Containerfile` is based on `texlive/texlive` (already has
 latexdiff/latexpand/biber) and only adds the figure tooling; it also strips the Debian
