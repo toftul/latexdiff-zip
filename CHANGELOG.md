@@ -10,6 +10,8 @@ diff PDF names it in its Creator field.
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-10-14
+
 ### Fixed
 
 - Web UI: the page in the container showed no version in the footer. The web app could not
@@ -124,7 +126,8 @@ The first release, with the bash engine `latexdiff-zip.sh` (tag `v1-bash`).
 - `latexdiff-zip.py`, a Python port of the engine. The container and the web UI use it.
 - `tests/test_parity.py`, a test suite that runs the engine over fixture projects.
 
-[Unreleased]: https://github.com/toftul/latexdiff-zip/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/toftul/latexdiff-zip/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/toftul/latexdiff-zip/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/toftul/latexdiff-zip/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/toftul/latexdiff-zip/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/toftul/latexdiff-zip/compare/v2.0.0...v2.1.0
