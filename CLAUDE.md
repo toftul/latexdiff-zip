@@ -89,6 +89,11 @@ collages into the PDF.
   `build_diff_pdf` is rerun on a diff of the unexpanded flats. biblatex is deliberately
   skipped: its `.bbl` is driver code, and latexpand's `--biber` embeds it verbatim in a
   `filecontents*` block where latexdiff markup would corrupt it, not display it.
+  Two traps once the bibliography is inline: `latexpand --keep-comments --expand-bbl` also
+  expands a *commented* `\bibliography` and comments only its first line
+  (`_comment_out_commented_bbls` comments the rest); and REVTeX still writes
+  `\bibdata{diffNotes}` and reads `diff.bbl` at the end of the inline `thebibliography`, so
+  `build_diff_pdf(bib_inline=True)` must not adopt the shipped `<main>.bbl` there.
 
 - **Manual pdflatex sequence, deliberately not latexmk.** latexdiff markup routinely makes
   pdflatex exit non-zero (e.g. amsmath "Multiple \label's"), and latexmk's rerun heuristics
@@ -119,9 +124,12 @@ collages into the PDF.
 **Figure comparison (`compare_figures` and helpers):** all of it degrades gracefully when the
 optional deps are missing — never make these hard requirements.
 
-- Figures are matched between versions by **`\label` first, then document order**
-  (`match_figures`). This is what lets a renamed image file (`plot_v1.pdf` → `plot_v2.pdf`)
-  still be paired. `match_figures` returns three lists — **changed** (paired, an OLD/NEW
+- Figures are matched between versions by **`\label` first, then the same file path,
+  then document order for unlabelled figures only** (`match_figures`). The label pass is
+  what lets a renamed image file (`plot_v1.pdf` → `plot_v2.pdf`) still be paired. A
+  labelled leftover is added/removed, never paired by position with an unrelated image.
+  `_parse_refs` strips comments first (the flats keep them), so commented-out figures are
+  not counted. `match_figures` returns three lists — **changed** (paired, an OLD/NEW
   collage), **added** and **removed** (one-sided figures, a single `NEW ONLY`/`OLD ONLY`
   panel via `make_single`). `_resolve` honours `\graphicspath` (document dir first, then each
   entry, so both a bare name and an explicit `figs/plot` resolve).

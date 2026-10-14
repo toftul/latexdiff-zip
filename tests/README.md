@@ -53,6 +53,8 @@ extract path of either engine.
 | `figure-visually-identical` | A byte-different but pixel-identical figure is dropped (no change reported). |
 | `figure-added` / `figure-removed` | A one-sided figure gets a `NEW ONLY` / `OLD ONLY` page. |
 | `figure-renamed` | A figure renamed under `\graphicspath{{figs/}}`: the old file is copied in, so the deleted `\includegraphics` still renders. |
+| `figure-commented-unlabelled` | Commented-out figures are ignored, and a new labelled figure is not paired by position with a deleted unlabelled one (1 added, 1 removed, none changed). |
+| `revtex-bib-commented` | REVTeX + `.bib` with a commented-out second `\bibliography`: each reference is printed once (no expanded commented copy, no adopted `.bbl` appended by REVTeX). |
 | `figure-multipanel` | Three `\includegraphics` under one `\label`: panels pair one-to-one, so only the edited panel is reported (1 changed, none added/removed). |
 
 Fixtures hold only source (`.tex`/`.bib`, and a shipped `.bbl` where that is the

@@ -100,7 +100,8 @@ class Case:
                  same_archive=False, literal=None, unsupported_file=False,
                  args=(), exit=0, need_lines=(), forbid_lines=(),
                  want_pdf=True, min_pages=1, min_images=0,
-                 probe_present=(), probe_absent=(), fast=False, network=False):
+                 probe_present=(), probe_absent=(), probe_once=(),
+                 fast=False, network=False):
         self.name = name
         self.old_dir = old_dir
         self.new_dir = new_dir
@@ -117,6 +118,7 @@ class Case:
         self.min_images = min_images
         self.probe_present = probe_present
         self.probe_absent = probe_absent
+        self.probe_once = probe_once
         self.fast = fast
         self.network = network
 
@@ -238,6 +240,27 @@ CASES = [
          need_lines=["figure diff: 1 changed"],
          forbid_lines=["figure added", "figure removed"], min_pages=2),
 
+    # A commented-out figure is not part of either version, and a leftover
+    # labelled figure is not paired by position with an unrelated one. Before
+    # the fix, the commented drafts were parsed as figures, and the deleted
+    # unlabelled figure u was shown as the OLD side of the new figure fig:b.
+    Case("figure_commented_unlabelled",
+         old_dir="figure-commented-unlabelled/old",
+         new_dir="figure-commented-unlabelled/new",
+         need_lines=["figure added: fig_b", "figure removed: u",
+                     "figure diff: 1 added, 1 removed"],
+         forbid_lines=["figure changed", "draft"], min_pages=3),
+
+    # REVTeX with a .bib and a commented-out second \bibliography: each
+    # reference must be printed once. Before the fix, latexpand expanded the
+    # commented copy too, and REVTeX read the adopted <main>.bbl as a second,
+    # continued bibliography, so citations pointed past the diffed one.
+    Case("revtex_bib_commented",
+         old_dir="revtex-bib-commented/old", new_dir="revtex-bib-commented/new",
+         need_lines=["expanding bibliographies"],
+         probe_present=["Zephyrine"], probe_once=["Quaxleworth", "Brindlemoor"],
+         probe_absent=["??"], min_pages=1),
+
     # ---- network cases (opt-in: LDZ_NETWORK=1) ----------------------------
     Case("arxiv_natbib", literal=["1706.03762v1", "1706.03762v2"], args=["-F"],
          need_lines=["fetching arXiv", "running latexdiff"],
@@ -284,7 +307,8 @@ def _make_test(case):
                         images, case.min_images,
                         f"only {images} image(s) embedded, want >= "
                         f"{case.min_images}{ctx}")
-                if HAVE_PDFTOTEXT and (case.probe_present or case.probe_absent):
+                if HAVE_PDFTOTEXT and (case.probe_present or case.probe_absent
+                                       or case.probe_once):
                     text = pdf_text(out_pdf)
                     for needle in case.probe_present:
                         self.assertIn(needle, text,
@@ -292,6 +316,10 @@ def _make_test(case):
                     for needle in case.probe_absent:
                         self.assertNotIn(needle, text,
                                          f"probe {needle!r} present in PDF{ctx}")
+                    for needle in case.probe_once:
+                        n = text.count(needle)
+                        self.assertEqual(n, 1,
+                                         f"probe {needle!r} found {n} times, want 1{ctx}")
             else:
                 self.assertFalse(os.path.exists(out_pdf),
                                  f"unexpected PDF produced{ctx}")

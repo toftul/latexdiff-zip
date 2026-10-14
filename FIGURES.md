@@ -9,7 +9,10 @@ diff PDF.
 
 Figures are paired by their `\label` (parsed from the flattened source), so a figure still
 matches even if its image file was **renamed** (e.g. `plot_v1.pdf` → `plot_v2.pdf`).
-Unlabelled figures fall back to matching by document order. Source images in any common
+Figures left over after that are paired when both versions use the same image file, and
+then, if neither has a `\label`, by document order. A labelled figure whose label the other
+version lacks is reported as added or removed, never paired with an unrelated figure.
+Commented-out figures (`% \includegraphics{…}`) are ignored. Source images in any common
 format (`pdf`, `eps`, `png`, `jpg`, …) are rasterised to PNG before being composed. Figures
 referenced with a bare name under a `\graphicspath{{figs/}}` directory are resolved the way
 LaTeX would (the document directory is searched first, then each `\graphicspath` entry, so an

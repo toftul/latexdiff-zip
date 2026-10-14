@@ -327,6 +327,47 @@ def latexpand(root, main, out_path, *extra):
     with open(out_path, "wb") as out:
         subprocess.run(["latexpand", "--keep-comments", *extra, main],
                        cwd=root, stdout=out, stderr=DEVNULL)
+    if "--expand-bbl" in extra:
+        _comment_out_commented_bbls(out_path)
+
+
+# An unescaped % starts a comment: one after an even number of backslashes
+# (\% is a literal percent sign; \\% is a line break, then a comment).
+_COMMENT_RE = re.compile(r"(?<!\\)((?:\\\\)*)%.*")
+_COMMENT_START_RE = re.compile(rb"(?<!\\)(?:\\\\)*%")
+
+
+def _strip_comments(text):
+    """Remove TeX comments and keep the line breaks. The flats keep comments
+    (latexpand --keep-comments), but a commented-out command is not part of
+    the document."""
+    return _COMMENT_RE.sub(r"\1", text)
+
+
+def _comment_out_commented_bbls(path):
+    """With --keep-comments, latexpand --expand-bbl also expands a commented
+    \\bibliography, and only the first line of the inserted bibliography is in
+    the comment. The rest is live: a second reference list after the real one.
+    Comment out each such copy up to its \\end{thebibliography}. Works on bytes
+    so a non-UTF-8 source survives."""
+    try:
+        with open(path, "rb") as f:
+            lines = f.read().split(b"\n")
+    except OSError:
+        return
+    inside = False
+    for i, line in enumerate(lines):
+        if inside:
+            lines[i] = b"%" + line
+            if b"\\end{thebibliography}" in line:
+                inside = False
+            continue
+        at = line.find(b"\\begin{thebibliography}")
+        if at >= 0 and _COMMENT_START_RE.search(line[:at]) \
+                and b"\\end{thebibliography}" not in line[at:]:
+            inside = True
+    with open(path, "wb") as f:
+        f.write(b"\n".join(lines))
 
 
 def bib_kind(flat_path):
@@ -608,6 +649,7 @@ def _visually_identical(a, b):
 
 def _parse_graphicspath(text):
     """Directories declared by \\graphicspath{{dir1/}{dir2/}}, in order."""
+    text = _strip_comments(text)
     dirs = []
     for gm in _GRAPHICSPATH_RE.finditer(text):
         inner, _ = _read_group(text, gm.end())
@@ -634,16 +676,26 @@ def _resolve(path, root, graphics_paths=()):
 
 
 def _parse_refs(text):
-    begins = [m.start() for m in _FIGBEG_RE.finditer(text)]
-    ends = [m.start() for m in _FIGEND_RE.finditer(text)]
+    text = _strip_comments(text)                  # commented-out figures don't count
+    # Pair each \begin with its \end. A graphic takes the label of the
+    # innermost figure environment around it, and no label when it is
+    # outside every figure (not the label of the figure before it).
+    events = sorted([(m.start(), True) for m in _FIGBEG_RE.finditer(text)]
+                    + [(m.start(), False) for m in _FIGEND_RE.finditer(text)])
+    spans, stack = [], []
+    for p, is_begin in events:
+        if is_begin:
+            stack.append(p)
+        elif stack:
+            spans.append((stack.pop(), p))
     refs = []
     for igm in _IG_RE.finditer(text):
         pos = igm.start()
-        env_s = max((s for s in begins if s < pos), default=None)
-        env_e = min((e for e in ends if e > pos), default=None)
+        env = max((sp for sp in spans if sp[0] < pos < sp[1]),
+                  key=lambda sp: sp[0], default=None)
         label = ""
-        if env_s is not None and env_e is not None:
-            lbls = _LABEL_RE.findall(text[env_s:env_e])
+        if env is not None:
+            lbls = _LABEL_RE.findall(text[env[0]:env[1]])
             label = lbls[0] if lbls else ""
         refs.append({"label": label, "path": igm.group(1).strip(), "pos": pos})
     return refs
@@ -654,8 +706,9 @@ def _fig_name(ref):
 
 
 def match_figures(old_root, new_root, old_flat, new_flat):
-    """Pair figures between the two versions by \\label first, then by document
-    order. Returns three lists of resolved files:
+    """Pair figures between the two versions by \\label first, then by file
+    path, then (unlabelled figures only) by document order. Returns three
+    lists of resolved files:
 
         changed = [(old_file, new_file, name)]  paired but byte-different
         added   = [(new_file, name)]            only in the new version
@@ -690,12 +743,27 @@ def match_figures(old_root, new_root, old_flat, new_flat):
         else:
             unmatched_new.append(nr)
 
-    old_unmatched = [r for r in old_refs if id(r) not in old_used]
-    k = min(len(unmatched_new), len(old_unmatched))
-    for j in range(k):
-        matched.append((old_unmatched[j], unmatched_new[j]))
-    added_refs = unmatched_new[k:]
-    removed_refs = old_unmatched[k:]
+    # Leftovers. The same file named on both sides is one figure whose \label
+    # was added, dropped or renamed. After that, pair by document order only
+    # figures with no \label on either side: a labelled leftover is a figure
+    # the other version lacks, and pairing it by position would set it
+    # against an unrelated image.
+    old_left = [r for r in old_refs if id(r) not in old_used]
+    new_left = []
+    for nr in unmatched_new:
+        twin = next((r for r in old_left if r["path"] == nr["path"]), None)
+        if twin is None:
+            new_left.append(nr)
+        else:
+            matched.append((twin, nr))
+            old_left = [r for r in old_left if r is not twin]
+    old_plain = [r for r in old_left if not r["label"]]
+    new_plain = [r for r in new_left if not r["label"]]
+    k = min(len(old_plain), len(new_plain))
+    matched.extend(zip(old_plain[:k], new_plain[:k]))
+    paired = {id(r) for r in old_plain[:k] + new_plain[:k]}
+    added_refs = [r for r in new_left if id(r) not in paired]
+    removed_refs = [r for r in old_left if id(r) not in paired]
 
     changed = []
     for or_, nr in matched:
@@ -888,11 +956,12 @@ def runtex(build):
                    cwd=build, stdout=DEVNULL, stderr=DEVNULL)
 
 
-def build_diff_pdf(build, main_new):
+def build_diff_pdf(build, main_new, bib_inline=False):
     """The fixed pdflatex -> bib backend -> pdflatex x2 sequence, ignoring
     non-zero exits (latexdiff markup routinely trips minor errors; the classic
-    sequence still converges where latexmk stops too early). Returns whether a
-    diff.pdf came out."""
+    sequence still converges where latexmk stops too early). `bib_inline` says
+    the diff already holds the formatted bibliography (expanded .bbl). Returns
+    whether a diff.pdf came out."""
     for f in ("diff.aux", "diff.bbl", "diff.bcf", "diff.blg", "diff.pdf"):
         remove(os.path.join(build, f))
 
@@ -916,8 +985,13 @@ def build_diff_pdf(build, main_new):
     # ship the formatted .bbl instead of the .bib, and the diff compiles under
     # jobname "diff", so the shipped <main>.bbl is never read), adopt the new
     # project's shipped .bbl -- it was copied in with the assets.
+    # Never when the bibliography is inline: REVTeX still writes
+    # \bibdata{diffNotes} for its bib notes, and at the end of the inline
+    # thebibliography it reads diff.bbl, so an adopted .bbl prints a second,
+    # continued reference list that the citations then point into.
     needs_bib = os.path.isfile(diff_bcf) or file_has(diff_aux, "\\bibdata")
-    if needs_bib and not (file_has(diff_bbl, "\\bibitem") or file_has(diff_bbl, "\\entry")):
+    if needs_bib and not bib_inline \
+            and not (file_has(diff_bbl, "\\bibitem") or file_has(diff_bbl, "\\entry")):
         shipped = os.path.join(build, os.path.splitext(os.path.basename(main_new))[0] + ".bbl")
         if os.path.isfile(shipped) and os.path.getsize(shipped) > 0:
             shutil.copy(shipped, diff_bbl)
@@ -1137,22 +1211,22 @@ def main(argv):
                 say(f"old-only figures: {n_old} copied so deletions render")
 
         say("building PDF...")
-        cur_old, cur_new = old_flat, new_flat
-        ok = build_diff_pdf(build, main_new)
+        cur_old, cur_new, bib_inline = old_flat, new_flat, bbl_expanded
+        ok = build_diff_pdf(build, main_new, bib_inline)
         # latexdiff markup inside a formatted bibliography occasionally produces
         # unbuildable TeX; redo the diff from the unexpanded flats (giving up
         # only the bibliography markup) rather than fail.
         if not ok and bbl_expanded:
             warn("warning: build failed with expanded bibliographies; retrying without them")
-            cur_old, cur_new = old_flat_noexp, new_flat_noexp
+            cur_old, cur_new, bib_inline = old_flat_noexp, new_flat_noexp, False
             run_latexdiff(cur_old, cur_new, gfx)
-            ok = build_diff_pdf(build, main_new)
+            ok = build_diff_pdf(build, main_new, bib_inline)
         # Deleted-figure markup is the other thing that can make a document
         # unbuildable; shed that too rather than fail.
         if not ok and gfx:
             warn("warning: build failed with deleted-figure markup; retrying without it")
             run_latexdiff(cur_old, cur_new, [])
-            build_diff_pdf(build, main_new)
+            build_diff_pdf(build, main_new, bib_inline)
 
         if not os.path.isfile(os.path.join(build, "diff.pdf")):
             warn("error: PDF build failed. Tail of diff.log:")
