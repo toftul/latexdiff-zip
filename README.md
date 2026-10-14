@@ -10,9 +10,9 @@ I host a ready-to-use copy: </br>
 Drag in your two archives (`.zip` or `.tar.gz`) — or paste arXiv IDs — and get
 a diff PDF back. 
 
-![Example diff PDF: old text struck out in red, new text underlined in blue, and an OLD vs NEW side-by-side figure comparison](examples/diff_example.png)
+![Example diff PDF: on the left, old text struck out in red and new text underlined in blue; on the right, a figure comparison headed Changed, Figure 1, with the OLD and NEW photos labelled side by side](examples/diff_example.png)
 
-*Old text struck out in red, new text underlined in blue, and changed figures compared side by side.*
+*Old text struck out in red, new text underlined in blue. An appendix compares each changed figure, OLD next to NEW.*
 
 ## Run it yourself
 
@@ -65,7 +65,7 @@ You can run `latexdiff` *inside* Overleaf. [Here's the trick.](OVERLEAF.md)
   `latexdiff` on two uploads and returns diff.tex (not PDF). 
 
 This project differs in three ways. It shows both versions of a changed figure
-side by side in the PDF. It reads Overleaf zips, tar archives, and arXiv IDs
+in an appendix of the PDF. It reads Overleaf zips, tar archives, and arXiv IDs
 through the same interface. It also diffs the bibliography, not only the body
 text.
 

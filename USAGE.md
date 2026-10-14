@@ -51,8 +51,8 @@ container.
 | `-M main.tex` | Main `.tex` file of the **new** project. Auto-detected if omitted; the two projects may use different names. |
 | `-o output.pdf` | Output PDF path. Defaults to `diff.pdf` next to the `NEW` archive. |
 | `-t TYPE` | `latexdiff --type` value (`UNDERLINE`, `CFONT`, `CCHANGEBAR`, …), or `BLUE`: added text in blue, deleted text not shown. Default: `UNDERLINE`. |
-| `-F` | Do **not** append figure-diff collages to the PDF (appended by default). |
-| `-c DIR` | Also save the figure-diff collage PNGs into `DIR`. |
+| `-F` | Do **not** add the figure comparison appendix to the PDF (added by default). |
+| `-c DIR` | Also save each figure comparison as a PNG in `DIR`. |
 | `-h` | Show help. |
 
 ## Examples
@@ -92,7 +92,7 @@ container.
 # Only show what was added, in blue (deletions are not shown)
 ./latexdiff-zip.py -t BLUE old.zip new.zip
 
-# Skip collages in the PDF, but save them as PNGs in a folder
+# Leave the figure appendix out of the PDF, but save the comparisons as PNGs
 ./latexdiff-zip.py -F -c changed_figures old.zip new.zip
 ```
 
@@ -148,8 +148,8 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
    alongside the diff so it compiles, plus any figure only the **old** version had, so
    deleted figures still have a file to draw.
 7. Builds the PDF with `pdflatex` → `bibtex` → `pdflatex` ×2 to resolve refs and citations.
-8. Compares figures and appends OLD/NEW collages for the changed ones (unless `-F`) —
-   see [figure comparison](FIGURES.md).
+8. Compares figures and adds an appendix that shows OLD and NEW for each changed one
+   (unless `-F`). See [figure comparison](FIGURES.md).
 
 ## Notes & limitations
 
@@ -158,10 +158,10 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
   at half size with a red cross (latexdiff's `--graphics-markup=both`). A new asset always
   wins over an old namesake. If that markup makes a document unbuildable — latexdiff warns
   it can provoke "Misplaced \noalign" on some tables — the build retries without it and
-  says so; the OLD/NEW collage pages still show the figure either way.
+  says so. The figure appendix still shows the figure either way.
 - `-t BLUE` shows the new document with additions in blue. It removes all deleted content:
   text, equations, section headings, references and figures. It does not copy old figures.
-  The figure appendix is not changed: it still shows OLD/NEW collages and OLD ONLY panels.
+  The figure appendix is not changed. It still shows every comparison, removed figures too.
 - `pdflatex` runs without `-halt-on-error`: `latexdiff` markup often trips minor errors, so
   the build pushes through them. If no PDF is produced, the tail of `diff.log` is printed.
 - Each project's main file is detected independently, so the two may have different

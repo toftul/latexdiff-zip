@@ -2,52 +2,90 @@
 
 [← back to README](README.md)
 
-Beyond the text diff, `latexdiff-zip` also compares **figures**. For every figure that
-changed between the two versions it builds a side-by-side collage with red **OLD** / green
-**NEW** banners and — by default — appends those collages as extra pages at the end of the
-diff PDF.
+Beyond the text diff, `latexdiff-zip` also compares **figures**. It finds every figure that
+changed between the two versions. By default, it adds a **Figure changes** appendix at the
+end of the diff PDF that shows the OLD and NEW versions of each one.
 
-Figures are paired by their `\label` (parsed from the flattened source), so a figure still
-matches even if its image file was **renamed** (e.g. `plot_v1.pdf` → `plot_v2.pdf`).
-Figures left over after that are paired when both versions use the same image file, and
-then, if neither has a `\label`, by document order. A labelled figure whose label the other
-version lacks is reported as added or removed, never paired with an unrelated figure.
-Commented-out figures (`% \includegraphics{…}`) are ignored. Source images in any common
-format (`pdf`, `eps`, `png`, `jpg`, …) are rasterised to PNG before being composed. Figures
-referenced with a bare name under a `\graphicspath{{figs/}}` directory are resolved the way
-LaTeX would (the document directory is searched first, then each `\graphicspath` entry, so an
-explicit `figs/plot` keeps working too).
+## How figures are paired
+
+The engine pairs figures by their `\label`, which it reads from the flattened source. So a
+figure still matches if its image file was **renamed** (e.g. `plot_v1.pdf` → `plot_v2.pdf`).
+Next, it pairs the remaining figures that use the same image file in both versions. Then it
+pairs figures that have no `\label` on either side, in document order. If only one version has
+a figure's label, the engine reports that figure as added or removed. It never pairs it with an
+unrelated figure. The engine ignores commented-out figures (`% \includegraphics{…}`).
+
+The engine finds figure files the way LaTeX does. It searches the document directory first,
+then each `\graphicspath{{figs/}}` entry, so a bare name and an explicit `figs/plot` both work.
+It tries a name without an extension in pdflatex's order (`.pdf` before `.png`). So the file it
+compares is the file the paper shows.
+
+## What is reported
 
 The comparison reports three kinds of change:
 
-- **Changed** — a figure present in both versions whose image differs. Shown as an OLD vs NEW
-  collage. A regenerated file that is *byte-different but pixel-identical* (matplotlib and
-  Inkscape stamp a fresh timestamp into every export) is detected by an image comparison and
-  **not** reported — this keeps the appendix free of false positives.
-- **Added** — a figure only in the new version. Shown as a single panel with a green
-  **NEW ONLY** banner.
-- **Removed** — a figure only in the old version. Shown as a single panel with a red
-  **OLD ONLY** banner, and also drawn in the body of the diff where it used to be (see
-  below).
+- **Δ Changed**: a figure present in both versions whose image differs. The engine does not
+  report a regenerated file that is *byte-different but pixel-identical*. (Matplotlib and
+  Inkscape write a fresh timestamp into every export.) An image comparison finds these files.
+- **+ Added**: a figure only in the new version.
+- **− Removed**: a figure only in the old version. The diff also draws it in the body, where
+  it used to be (see below).
 
-Figures the new version **dropped or renamed** are also rendered in place in the text: the
-diff is run with latexdiff's `--graphics-markup=both`, which draws a deleted figure at half
-size crossed out in red rather than commenting it away, and the engine copies those old image
-files in beside the new project's assets so they can be drawn. A file the new project already
-provides under that name is never overwritten.
+## The appendix
 
-That markup level applies to every changed figure, not only deleted ones: where an image was
-replaced, the diff body now shows the old version crossed out next to the new one framed in
-blue. The OLD/NEW collage pages are unaffected.
+The appendix is a LaTeX document of its own, added after the last page of the diff.
 
-- Pass `-F` to skip embedding the collages in the PDF.
-- Pass `-c DIR` to also (or instead) write the collage PNGs into a folder.
+- **Overview.** The first page lists every change: its status, the figure, its page in the
+  diff, and its page in the appendix. Click a row to go to that comparison. The PDF also gets
+  a **Figure changes** bookmark with one entry per comparison.
+- **Heading.** Each comparison starts with its status, the figure number, and its page in the
+  diff. The caption follows as plain text, with any maths kept as TeX source. If the number is not
+  reliable, the heading uses the `\label`, or else the file name.
+- **Panels.** OLD is always on the left, or on top. Wide figures stack, and tall or square
+  figures sit side by side, whichever shows them larger. The engine scales both images to
+  fit the same box. Each panel names its source: the archive file name or the arXiv id.
+- **Added or removed figures** keep both slots. The empty slot is a dashed box that says
+  "Not in OLD version" or "Not in NEW version".
+- **Packing.** Comparisons follow the order of the paper. Small ones share a page, and a
+  comparison never splits across two pages.
+- **Page size.** The appendix uses the page size of the diff PDF. A page smaller than A5 or
+  larger than A3 (slides, a poster) gets A4 in the same orientation.
+
+The design is accessible, and color is never the only signal:
+
+- The words OLD and NEW label every panel. Each status is a word and a symbol (Δ, +, −).
+- OLD is dark red and NEW is dark blue, the same colors as the text diff. Both have a contrast
+  of 7.5:1 on white.
+- All text is real text, so you can search it, select it, and copy it. A grayscale print
+  keeps all the information.
+- Vector figures (`.pdf`, `.eps`) stay vector. They do not become blurry images.
+
+## Figures in the body of the diff
+
+The diff also draws figures that the new version **dropped or renamed**, in place in the
+text. It uses latexdiff's `--graphics-markup=both`. This option draws a deleted figure at half size,
+crossed out in red, instead of hiding it. The engine copies those old image files next to the
+new project's files so that LaTeX can draw them. A file that the new project has under the same
+name always wins.
+
+This markup applies to every changed figure, not only to deleted ones. Where an image was
+replaced, the diff body shows the old version crossed out next to the new one in a blue frame.
+The appendix does not change because of this.
+
+## Options
+
+- Pass `-F` to leave the appendix out of the PDF.
+- Pass `-c DIR` to also save each comparison as a PNG in `DIR`, named `<label>_diff.png`. The
+  PNGs have the same design as the appendix.
 
 ## Requirements
 
-The figure diff is optional and degrades gracefully — without these you still get the text
-diff:
+The figure comparison is optional. Without these tools you still get the text diff:
 
-- **ImageMagick** (`magick`, or `convert`/`identify`) — builds the collages and does the
-  pixel-level comparison that skips visually-unchanged figures.
-- **pdfunite** (poppler) or **gs** (Ghostscript) — appends them to the PDF.
+- **ImageMagick** (`magick`, or `convert`/`identify`): converts each figure to PNG and does the
+  pixel comparison that skips figures with no visible change.
+- **Ghostscript** (`gs`): adds the appendix to the PDF and keeps the bookmarks and links of
+  both. If `gs` is not installed, the engine uses `pdfunite` (poppler). Then the PDF loses its
+  bookmarks and internal links.
+- The appendix uses the LaTeX packages `tgheros`, `tikz`, `hyperref` and `bookmark`. Without
+  them, it falls back to a plain layout that needs only base LaTeX.

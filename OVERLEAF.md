@@ -27,4 +27,4 @@ shells out to `latexdiff` at build time and `\input`s the result:
 
 Set `\oldFile` / `\newFile` to your two filenames. It relies on shell-escape (on by default
 in Overleaf), diffs a single `.tex` rather than a flattened project, and makes no figure
-collages — but needs no local tools and no downloads.
+comparisons — but needs no local tools and no downloads.

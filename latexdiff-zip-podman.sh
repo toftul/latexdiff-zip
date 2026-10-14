@@ -24,7 +24,7 @@ elif ! podman image exists "$IMAGE"; then
 fi
 
 # Mount the current directory as /work and run as the calling user so the diff
-# PDF and any collage folder come out owned by you rather than root.
+# PDF and any -c PNG folder come out owned by you rather than root.
 exec podman run --rm \
     --userns=keep-id \
     -v "$PWD":/work:Z \

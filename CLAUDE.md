@@ -65,7 +65,10 @@ LDZ_NETWORK=1 python3 tests/test_parity.py       # + real arXiv-fetch cases
 ```
 
 `test_for_diff_old.zip`/`test_for_diff_new.zip` in the repo root are real sample fixtures —
-use them to smoke-test changes end-to-end. See `tests/README.md` for the oracle's cases and
+use them to smoke-test changes end-to-end. `examples/make-example.sh` regenerates
+`examples/diff_example.png` (the README and landing-page picture) from
+`tests/cases/dirac-diff` with the working-tree engine — rerun it after changing the appendix
+design. See `tests/README.md` for the oracle's cases and
 knobs.
 
 ### Testing constraint
