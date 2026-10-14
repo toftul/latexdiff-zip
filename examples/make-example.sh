@@ -42,14 +42,13 @@ EOF
 python3 /repo/latexdiff-zip.py -o diff.pdf -c figs dirac-v1.zip dirac-v2.zip
 pdftoppm -r 200 -f 1 -l 1 -png -singlefile diff.pdf page
 
-# Two white cards on a light grey canvas, scaled to one height: the text diff
-# (page 1) on the left, the figure comparison (the -c PNG) on the right.
+# The text diff (page 1) on the left and the figure comparison (the -c PNG) on
+# the right, scaled to one height and joined edge to edge on white: both
+# already have white margins, so the result is one seamless white picture.
 h=780
-card() { magick "$1" -resize "x$h" -bordercolor "#DADCE0" -border 1 "$2"; }
-card page.png left.png
-card figs/fig_man_diff.png right.png
-magick -background "#F1F3F4" left.png -size 40x1 xc:"#F1F3F4" right.png \
-    -gravity center +append -bordercolor "#F1F3F4" -border 40 \
+magick page.png -resize "x$h" left.png
+magick figs/fig_man_diff.png -resize "x$h" right.png
+magick -background white left.png right.png -gravity center +append \
     -resize 1600x -depth 8 -strip diff_example.png
 '
 
