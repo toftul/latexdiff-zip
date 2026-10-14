@@ -10,7 +10,7 @@ I host a copy that you can use now: </br>
 Drop your two archives (`.zip` or `.tar.gz`) on the page, or paste two arXiv IDs. The page
 builds the diff PDF and shows it.
 
-![Example diff PDF: on the left, old text in red strikethrough and new text underlined in blue; on the right, a figure comparison headed Changed, Figure 1, with the OLD and NEW photos labeled side by side](examples/diff_example.png)
+![Example diff PDF: on the left, old text in red strikethrough and new text underlined in blue; on the right, a figure comparison headed Changed, Figure 1, with the OLD and NEW photos labeled side by side](examples/diff_example_readme.png)
 
 *Left: the text diff, with old text in red strikethrough and new text underlined in blue.
 Right: the appendix compares each changed figure, OLD next to NEW.*

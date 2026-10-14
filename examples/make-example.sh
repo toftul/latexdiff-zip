@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Regenerate examples/diff_example.png, the picture in the README and on the web
-# page, from the Dirac fixture in tests/cases/dirac-diff.
+# Regenerate the example pictures from the Dirac fixture in tests/cases/dirac-diff:
+#   examples/diff_example.png         plain white, for the web page (Containerfile.web)
+#   examples/diff_example_readme.png  on a grey canvas, for the GitHub README
 #
 # Usage: examples/make-example.sh [--build]
 #
@@ -43,14 +44,27 @@ python3 /repo/latexdiff-zip.py -o diff.pdf -c figs dirac-v1.zip dirac-v2.zip
 pdftoppm -r 200 -f 1 -l 1 -png -singlefile diff.pdf page
 
 # The text diff (page 1) on the left and the figure comparison (the -c PNG) on
-# the right, scaled to one height and joined edge to edge on white: both
-# already have white margins, so the result is one seamless white picture.
+# the right, scaled to one height.
 h=780
 magick page.png -resize "x$h" left.png
 magick figs/fig_man_diff.png -resize "x$h" right.png
+
+# Web page: joined edge to edge on white. Both halves already have white
+# margins, so the result is one seamless white picture on the white page.
 magick -background white left.png right.png -gravity center +append \
     -resize 1600x -depth 8 -strip diff_example.png
+
+# README: two bordered white cards on a light grey canvas, which frames the
+# picture on GitHub in light and dark mode alike.
+for half in left right; do
+    magick "$half.png" -bordercolor "#DADCE0" -border 1 "card-$half.png"
+done
+magick -background "#F1F3F4" card-left.png -size 40x1 xc:"#F1F3F4" card-right.png \
+    -gravity center +append -bordercolor "#F1F3F4" -border 40 \
+    -resize 1600x -depth 8 -strip diff_example_readme.png
 '
 
-cp "$work/diff_example.png" "$repo/examples/diff_example.png"
-echo "wrote: $repo/examples/diff_example.png"
+for f in diff_example.png diff_example_readme.png; do
+    cp "$work/$f" "$repo/examples/$f"
+    echo "wrote: $repo/examples/$f"
+done
