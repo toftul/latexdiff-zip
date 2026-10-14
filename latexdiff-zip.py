@@ -66,8 +66,12 @@ BLUE_PREAMBLE = rb"""%DIF BLUE PREAMBLE (latexdiff-zip)
 _BEGIN_DOC_RE = re.compile(rb"^[^\S\n]*\\begin\{document\}", re.M)
 
 # Image extensions tried when resolving an \includegraphics path with no suffix.
-RESOLVE_EXTS = ("", ".png", ".jpg", ".jpeg", ".pdf", ".eps", ".ps", ".svg",
-                ".tiff", ".bmp")
+# The order is pdflatex's own (pdftex.def's \Gin@extensions, then the .eps that
+# epstopdf appends), so when a project ships both plot.pdf and plot.png the file
+# compared is the one the paper draws. Formats pdflatex cannot include come last.
+RESOLVE_EXTS = ("", ".pdf", ".png", ".jpg", ".mps", ".jpeg", ".jbig2", ".jb2",
+                ".PDF", ".PNG", ".JPG", ".JPEG", ".JBIG2", ".JB2", ".eps",
+                ".ps", ".svg", ".tiff", ".bmp")
 
 _DOCCLASS_RE = re.compile(r"^[^\S\n]*\\documentclass", re.M)
 _BIBLATEX_RE = re.compile(

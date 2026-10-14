@@ -1,0 +1,13 @@
+\documentclass{article}
+\usepackage{graphicx}
+\begin{document}
+A figure that exists as both plot.pdf and plot.png. graphicx tries .pdf
+first, so the PDF is the one drawn, and the one to compare.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=3cm]{plot}
+  \caption{The plot.}
+  \label{fig:plot}
+\end{figure}
+\end{document}

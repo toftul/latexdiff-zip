@@ -240,6 +240,14 @@ CASES = [
          need_lines=["figure diff: 1 changed"],
          forbid_lines=["figure added", "figure removed"], min_pages=2),
 
+    # plot.pdf and plot.png side by side, only the PDF edited. graphicx draws
+    # the PDF, so that is the pair to compare; resolving .png first compared
+    # two identical PNGs and reported no change.
+    Case("figure_pdf_over_png",
+         old_dir="figure-pdf-over-png/old", new_dir="figure-pdf-over-png/new",
+         need_lines=["figure changed: fig_plot", "figure diff: 1 changed"],
+         min_pages=2),
+
     # A commented-out figure is not part of either version, and a leftover
     # labelled figure is not paired by position with an unrelated one. Before
     # the fix, the commented drafts were parsed as figures, and the deleted
