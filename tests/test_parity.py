@@ -111,7 +111,7 @@ class Case:
     def __init__(self, name, *, old_dir=None, new_dir=None, both_dir=None,
                  same_archive=False, literal=None, unsupported_file=False,
                  args=(), exit=0, need_lines=(), forbid_lines=(),
-                 want_pdf=True, min_pages=1, min_images=0,
+                 want_pdf=True, min_pages=1, max_pages=None, min_images=0,
                  probe_present=(), probe_absent=(), probe_once=(),
                  outline_present=(), fast=False, network=False):
         self.name = name
@@ -127,6 +127,7 @@ class Case:
         self.forbid_lines = forbid_lines
         self.want_pdf = want_pdf
         self.min_pages = min_pages
+        self.max_pages = max_pages
         self.min_images = min_images
         self.probe_present = probe_present
         self.probe_absent = probe_absent
@@ -216,15 +217,19 @@ CASES = [
          forbid_lines=["figure changed", "figure added", "figure removed"],
          min_pages=1),
 
-    # A figure present only in the new version gets a NEW ONLY page.
+    # A figure present only in the new version: an "Added" comparison whose
+    # OLD slot is a placeholder. The labels are typeset text, so they can be
+    # probed.
     Case("figure_added", old_dir="figure-added/old", new_dir="figure-added/new",
          need_lines=["figure added", "figure diff: 1 added"],
-         forbid_lines=["figure changed", "figure removed"], min_pages=2),
+         forbid_lines=["figure changed", "figure removed"], min_pages=2,
+         probe_present=["Figure changes", "Added", "Not in OLD version", "NEW"]),
 
-    # A figure present only in the old version gets an OLD ONLY page.
+    # A figure present only in the old version: "Removed", NEW slot empty.
     Case("figure_removed", old_dir="figure-removed/old", new_dir="figure-removed/new",
          need_lines=["figure removed", "figure diff: 1 removed"],
-         forbid_lines=["figure changed", "figure added"], min_pages=2),
+         forbid_lines=["figure changed", "figure added"], min_pages=2,
+         probe_present=["Removed", "Not in NEW version", "OLD"]),
 
     # A figure only the old version had must still be *drawn* (crossed out at
     # reduced scale), not silently dropped: latexdiff keeps the deleted
@@ -278,7 +283,15 @@ CASES = [
          new_dir="figure-commented-unlabelled/new",
          need_lines=["figure added: fig_b", "figure removed: u",
                      "figure diff: 1 added, 1 removed"],
-         forbid_lines=["figure changed", "draft"], min_pages=3),
+         forbid_lines=["figure changed", "draft"], min_pages=2, max_pages=2),
+
+    # Comparisons pack: two square figures (one edited, one added) sit side
+    # by side and share one appendix page, so the PDF is 1 + 1 pages.
+    Case("figure_packing",
+         old_dir="figure-packing/old", new_dir="figure-packing/new",
+         need_lines=["figure diff: 1 changed, 1 added"],
+         probe_present=["Changed", "Added", "Not in OLD version"],
+         min_pages=2, max_pages=2),
 
     # REVTeX with a .bib and a commented-out second \bibliography: each
     # reference must be printed once. Before the fix, latexpand expanded the
@@ -330,6 +343,10 @@ def _make_test(case):
                     self.assertGreaterEqual(
                         pages, case.min_pages,
                         f"only {pages} pages, want >= {case.min_pages}{ctx}")
+                    if case.max_pages is not None:
+                        self.assertLessEqual(
+                            pages, case.max_pages,
+                            f"{pages} pages, want <= {case.max_pages}{ctx}")
                 if HAVE_PDFIMAGES and case.min_images:
                     images = pdf_images(out_pdf)
                     self.assertGreaterEqual(

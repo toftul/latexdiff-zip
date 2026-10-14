@@ -52,9 +52,10 @@ extract path of either engine.
 | `same-archive` | One archive holding both `old.tex` and `new.tex`, named via `-M`. |
 | `figure-graphicspath` | `\graphicspath{{figs/}}` resolution — a bare name and an explicit `figs/` prefix both resolve (2 changed). |
 | `figure-visually-identical` | A byte-different but pixel-identical figure is dropped (no change reported). |
-| `figure-added` / `figure-removed` | A one-sided figure gets a `NEW ONLY` / `OLD ONLY` page. |
+| `figure-added` / `figure-removed` | A one-sided figure is an Added / Removed comparison with a placeholder in the missing slot (probed as text). |
 | `figure-renamed` | A figure renamed under `\graphicspath{{figs/}}`: the old file is copied in, so the deleted `\includegraphics` still renders. |
 | `figure-commented-unlabelled` | Commented-out figures are ignored, and a new labelled figure is not paired by position with a deleted unlabelled one (1 added, 1 removed, none changed). |
+| `figure-packing` | Two square comparisons (one changed, one added) pack onto one appendix page: the PDF has exactly 2 pages. |
 | `revtex-bib-commented` | REVTeX + `.bib` with a commented-out second `\bibliography`: each reference is printed once (no expanded commented copy, no adopted `.bbl` appended by REVTeX). |
 | `figure-pdf-over-png` | `plot.pdf` and `plot.png` side by side, only the PDF edited: the engine compares the file pdflatex draws (`.pdf` first), so 1 changed. |
 | `figure-hyperref` | A hyperref paper keeps its own bookmarks after the figure appendix is merged in (checked with `pdftohtml -xml`). |

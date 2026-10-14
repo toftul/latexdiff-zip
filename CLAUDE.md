@@ -42,6 +42,10 @@ It is delivered at three layers, each wrapping the one below:
 python3 -m py_compile latexdiff-zip.py  # engine syntax
 python3 -m py_compile webapp/app.py webapp/mains.py   # web app syntax
 
+# Figure-appendix helpers (page size, side-by-side vs stacked, labels, escaping,
+# document order, the generated LaTeX). No LaTeX, no ImageMagick; instant.
+python3 tests/test_figpage.py
+
 # Web-only unit tests for the main-.tex scan (no Flask, no LaTeX, ~1s). Includes
 # the drift guard tying webapp/mains.py to the engine's detect_main.
 python3 tests/test_mains.py
@@ -80,8 +84,8 @@ into a single top-level dir if present → auto-detect the main `.tex` (the one 
 `\documentclass`) → `latexpand` each into one
 flat file → for BibTeX docs, compile each side once + `bibtex` and re-flatten with
 `latexpand --expand-bbl` so bibliography changes get diffed → `latexdiff` the two → copy
-the **new** project's assets into a build dir → compile → compare figures → embed figure
-collages into the PDF.
+the **new** project's assets into a build dir → compile → compare figures → typeset the
+figure appendix and merge it into the PDF.
 
 - **Bibliography expansion is all-or-nothing and has a fallback ladder.** If any side that
   needs a `.bbl` can't produce one, *both* sides stay unexpanded (expanding one side only
@@ -116,7 +120,7 @@ collages into the PDF.
   heading. It does not use latexdiff's `--preamble`, because in the `texlive/texlive` image
   that option fails on a missing Perl module (`Encode::Locale`). BLUE also turns off
   `--graphics-markup=both` and `copy_old_figures` on purpose, so deleted figures vanish. Do not
-  "fix" this. The figure appendix (including OLD ONLY panels) is unchanged.
+  "fix" this. The figure appendix (removed figures included) is unchanged.
 - **Stdlib only, no pip deps.** The engine imports nothing outside the standard library; keep
   it that way. The LaTeX toolchain and the figure tooling (ImageMagick, pdfunite/gs) are the
   only external programs, all invoked via `subprocess`.
@@ -129,19 +133,41 @@ optional deps are missing — never make these hard requirements.
   what lets a renamed image file (`plot_v1.pdf` → `plot_v2.pdf`) still be paired. A
   labelled leftover is added/removed, never paired by position with an unrelated image.
   `_parse_refs` strips comments first (the flats keep them), so commented-out figures are
-  not counted. `match_figures` returns three lists — **changed** (paired, an OLD/NEW
-  collage), **added** and **removed** (one-sided figures, a single `NEW ONLY`/`OLD ONLY`
-  panel via `make_single`). `_resolve` honours `\graphicspath` (document dir first, then each
-  entry, so both a bare name and an explicit `figs/plot` resolve).
+  not counted. `match_figures` returns one list of entries (status **changed**, **added**
+  or **removed**) in **document order**: changed and added figures where they sit in NEW, a
+  removed one right after the figure that preceded it in OLD. `_resolve` honours
+  `\graphicspath` (document dir first, then each entry, so both a bare name and an explicit
+  `figs/plot` resolve), and tries extensions in pdflatex's own order (`.pdf` before `.png`),
+  so the file compared is the file the paper draws.
 - **Two-stage change detection avoids false positives.** `match_figures` drops byte-identical
   pairs by md5; then, after rasterising, `compare_figures` drops pairs that are pixel-identical
   via `_visually_identical` (`magick compare -metric AE`). This is what stops a regenerated
-  PDF whose only change is a `/CreationDate` from producing a spurious collage.
+  PDF whose only change is a `/CreationDate` from producing a spurious comparison.
 - `_im`/`_im_identify` wrap ImageMagick, preferring v7 `magick` over v6 `convert`/`identify`.
-- Collages are built as PNGs (any source format is rasterised first), then **embedded by
-  building a separate standalone appendix PDF and merging it** — rather than injecting into
-  the fragile latexdiff source. `-F` disables embedding; `-c DIR` also writes the PNGs to a
-  folder.
+- **The appendix is typeset by LaTeX, then merged** — never injected into the fragile
+  latexdiff source, and no longer drawn as ImageMagick collages. `appendix_tex` writes a
+  standalone document: labels are real text (searchable, sharp), and pdflatex includes the
+  original `.pdf/.png/.jpg/.eps` figures, so vector stays vector; other formats go in as the
+  rasterised PNG. Accessibility rules it keeps, don't regress them: colour is never the only
+  cue (OLD/NEW are words, OLD always left or on top, statuses are a word plus a symbol); the
+  side colours are latexdiff's red/blue darkened to 7.5:1 on white; `\pdfgentounicode` so
+  copied text is right.
+- **Layout.** Each comparison is one unbreakable block; LaTeX packs them in document order and
+  breaks the page when the next one doesn't fit. Every panel is fitted into the same box,
+  capped at `PANEL_H` of the text height; `choose_layout` puts OLD and NEW side by side or
+  stacked, whichever shows them larger (wide figures stack). A one-sided figure keeps both
+  slots, the missing one a dashed "Not in … version" placeholder (full size side by side, a
+  strip when stacked). The page size follows the diff PDF (`pdf_page_size` reads the
+  `/MediaBox`, inflating pdfTeX's object streams) between A5 and A3; anything else gets A4 in
+  the paper's orientation (`appendix_page_size`). Each panel names its source (`side_labels`:
+  archive name or `arXiv:id`, plus the main `.tex` when both sides share a name).
+- **The appendix has its own fallback ladder** (`build_fig_appendix`): `full` (designed page,
+  original files) → `png` (same design, rasterised figures: one file pdflatex chokes on) →
+  `minimal` (base LaTeX only, same macro names: a missing font or TikZ). A level passes only
+  if the log has no `!` error, since nonstopmode produces a PDF past most errors.
+  `tex_escape` turns everything outside Latin-1/Latin Extended-A into `?` for the same
+  reason. `-F` disables embedding; `-c DIR` (`export_fig_pngs`) typesets each comparison on a
+  page of its own and trims it to a `<name>_diff.png`, so the PNGs match the PDF.
 - **The merge is `gs` first, `pdfunite` only as a fallback.** pdfunite drops the outline and
   sends every internal link to page 1 — a hyperref paper's own links too — while `gs` keeps
   both documents' bookmarks and links (oracle case `figure_hyperref_outline`). `GS_LOSSLESS`

@@ -27,12 +27,14 @@ import hashlib
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
 import tempfile
 import urllib.request
 import zipfile
+import zlib
 
 UA = "latexdiff-zip (+https://github.com/toftul/latexdiff-zip)"
 DEVNULL = subprocess.DEVNULL
@@ -149,8 +151,8 @@ def usage():
         "  -o output.pdf  Output PDF path (default: <dir of NEW>/diff.pdf).\n"
         "  -t TYPE        latexdiff --type value (default: UNDERLINE), or BLUE:\n"
         "                 additions in blue, deletions not shown at all.\n"
-        "  -F             Do not append figure-diff collages to the PDF (on by default).\n"
-        "  -c DIR         Also save the figure-diff collage PNGs into DIR."
+        "  -F             Do not append the figure comparisons to the PDF (on by default).\n"
+        "  -c DIR         Also save each figure comparison as a PNG in DIR."
     )
     sys.exit(2)
 
@@ -563,51 +565,28 @@ def _im_identify(args):
 
 
 def to_png(src, dst):
-    """Convert any supported image to a flat PNG (no alpha, white background)."""
+    """Convert any supported image to a flat 8-bit PNG (no alpha, white
+    background). 8-bit: ImageMagick otherwise keeps 16 bits per channel,
+    doubling the size for nothing a screen can show."""
     ext = os.path.splitext(src)[1].lstrip(".").lower()
     if ext in ("pdf", "eps", "ps"):
         return _im(["-density", "150", f"{src}[0]", "-background", "white",
-                    "-alpha", "remove", "-flatten", dst])
-    return _im(["-background", "white", src, "-alpha", "remove", "-flatten", dst])
+                    "-alpha", "remove", "-flatten", "-depth", "8", dst])
+    return _im(["-background", "white", src, "-alpha", "remove", "-flatten",
+                "-depth", "8", dst])
 
 
-def label_png(src, dst, label, color):
-    """Prepend a coloured label strip to a PNG."""
-    w = _im_identify(["-format", "%w", src])
-    if not w:
-        return False
-    return _im(["(", "-size", f"{w}x32", f"xc:{color}", "-fill", "white",
-                "-gravity", "Center", "-pointsize", "22", "-annotate", "0", label, ")",
-                "(", src, ")", "-append", dst])
-
-
-def make_collage(old_png, new_png, out, figcmp):
-    """Produce a side-by-side OLD/NEW collage PNG."""
-    old_lab = os.path.join(figcmp, "old_lab.png")
-    new_lab = os.path.join(figcmp, "new_lab.png")
-    if not label_png(old_png, old_lab, "OLD", "#CC2200"):
-        return False
-    if not label_png(new_png, new_lab, "NEW", "#006622"):
-        return False
-    h_old = _im_identify(["-format", "%h", old_lab])
-    h_new = _im_identify(["-format", "%h", new_lab])
-    if not h_old or not h_new:
-        return False
-    h_max = max(int(h_old), int(h_new))
-    old_siz = os.path.join(figcmp, "old_siz.png")
-    new_siz = os.path.join(figcmp, "new_siz.png")
-    _im([old_lab, "-resize", f"x{h_max}", old_siz])
-    _im([new_lab, "-resize", f"x{h_max}", new_siz])
-    return _im([old_siz, new_siz, "+append", "-bordercolor", "#555555",
-                "-border", "2", out])
-
-
-def make_single(src_png, out, label, color, figcmp):
-    """A single labelled panel, for a figure that exists on only one side."""
-    lab = os.path.join(figcmp, "single_lab.png")
-    if not label_png(src_png, lab, label, color):
-        return False
-    return _im([lab, "-bordercolor", "#555555", "-border", "2", out])
+def png_size(path):
+    """(width, height) of a PNG, read from its IHDR chunk, or None."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+    except OSError:
+        return None
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+        return None
+    w, h = struct.unpack(">II", head[16:24])
+    return (w, h) if w and h else None
 
 
 def _md5(path):
@@ -711,12 +690,18 @@ def _fig_name(ref):
 
 def match_figures(old_root, new_root, old_flat, new_flat):
     """Pair figures between the two versions by \\label first, then by file
-    path, then (unlabelled figures only) by document order. Returns three
-    lists of resolved files:
+    path, then (unlabelled figures only) by document order. Returns one list
+    of figure changes in document order, each a dict:
 
-        changed = [(old_file, new_file, name)]  paired but byte-different
-        added   = [(new_file, name)]            only in the new version
-        removed = [(old_file, name)]            only in the old version
+        status    "changed" (paired but byte-different), "added" (only in the
+                  new version) or "removed" (only in the old version)
+        name      file-name-safe identifier (label, else path)
+        old, new  the resolved files, None on the side that lacks it
+        old_ref, new_ref  the parsed \\includegraphics refs, likewise
+
+    Changed and added figures sit where they appear in the new version; a
+    removed figure goes right after the figure that preceded it in the old
+    version (unchanged pairs included), so the list reads like the paper.
 
     Byte-identical pairs are dropped here; pairs that differ only in bytes but
     not in pixels are dropped later, once rasterised."""
@@ -769,7 +754,19 @@ def match_figures(old_root, new_root, old_flat, new_flat):
     added_refs = [r for r in new_left if id(r) not in paired]
     removed_refs = [r for r in old_left if id(r) not in paired]
 
-    changed = []
+    # Order: new-version position for paired and added figures; a removed
+    # figure is keyed just after the new position of the nearest earlier
+    # old figure that was paired (or first, if none was).
+    partner = {id(or_): nr for or_, nr in matched}
+    order = {id(nr): (nr["pos"], 0, 0) for nr in new_refs}
+    anchor = -1
+    for or_ in old_refs:
+        if id(or_) in partner:
+            anchor = partner[id(or_)]["pos"]
+        else:
+            order[id(or_)] = (anchor, 1, or_["pos"])
+
+    entries = []
     for or_, nr in matched:
         old_file = _resolve(or_["path"], old_root, old_gp)
         new_file = _resolve(nr["path"], new_root, new_gp)
@@ -777,13 +774,23 @@ def match_figures(old_root, new_root, old_flat, new_flat):
             continue
         if _md5(old_file) == _md5(new_file):
             continue
-        changed.append((old_file, new_file, _fig_name(nr)))
-
-    added = [(f, _fig_name(nr)) for nr in added_refs
-             if (f := _resolve(nr["path"], new_root, new_gp)) is not None]
-    removed = [(f, _fig_name(or_)) for or_ in removed_refs
-               if (f := _resolve(or_["path"], old_root, old_gp)) is not None]
-    return changed, added, removed
+        entries.append({"status": "changed", "name": _fig_name(nr),
+                        "old": old_file, "new": new_file,
+                        "old_ref": or_, "new_ref": nr, "key": order[id(nr)]})
+    for nr in added_refs:
+        f = _resolve(nr["path"], new_root, new_gp)
+        if f is not None:
+            entries.append({"status": "added", "name": _fig_name(nr),
+                            "old": None, "new": f,
+                            "old_ref": None, "new_ref": nr, "key": order[id(nr)]})
+    for or_ in removed_refs:
+        f = _resolve(or_["path"], old_root, old_gp)
+        if f is not None:
+            entries.append({"status": "removed", "name": _fig_name(or_),
+                            "old": f, "new": None,
+                            "old_ref": or_, "new_ref": None, "key": order[id(or_)]})
+    entries.sort(key=lambda e: e["key"])
+    return entries
 
 
 def copy_old_figures(old_root, old_flat, new_flat, build):
@@ -826,118 +833,429 @@ def copy_old_figures(old_root, old_flat, new_flat, build):
     return n
 
 
-def _emit_single(refs, verb, label, color, figcmp, collages, manifest):
-    """One single-panel page per one-sided figure. Returns how many were added."""
-    count = 0
-    for i, (src, name) in enumerate(refs):
-        png = os.path.join(figcmp, f"src_{verb}_{i:03d}.png")
-        if not to_png(src, png):
-            warn(f"  warning: cannot convert {src}")
-            continue
-        say(f"  figure {verb}: {name}")
-        collage = os.path.join(collages, f"{verb}_{i:03d}_{name}.png")
-        if make_single(png, collage, label, color, figcmp):
-            manifest.append((collage, name))
-            count += 1
-        else:
-            warn(f"  warning: collage failed for {name}")
-    return count
-
-
 def compare_figures(old_root, new_root, old_flat, new_flat, tmp):
-    """Return a manifest [(collage_png, display_name), ...] describing every
-    figure change: edited pairs (side-by-side OLD/NEW), plus figures added or
-    removed (a single labelled panel). Edited pairs whose rasterised pixels are
-    identical -- only the file bytes changed -- are dropped. Degrades to an empty
-    manifest (with a warning) when ImageMagick is absent."""
+    """Return the figure changes to show, in document order: match_figures'
+    entries with each present side rasterised ("old_png"/"new_png") and its
+    shape recorded ("old_aspect"/"new_aspect", width over height). Edited pairs
+    whose rasterised pixels are identical -- only the file bytes changed -- are
+    dropped. Degrades to an empty list (with a warning) when ImageMagick is
+    absent."""
     if not (which("magick") or which("convert")):
         warn("warning: ImageMagick not found; skipping figure comparison")
         return []
     figcmp = os.path.join(tmp, "figcmp")
-    collages = os.path.join(tmp, "collages")
     os.makedirs(figcmp, exist_ok=True)
-    os.makedirs(collages, exist_ok=True)
 
-    changed, added, removed = match_figures(old_root, new_root, old_flat, new_flat)
-
-    manifest = []
-    n_changed = 0
-    for i, (old_file, new_file, name) in enumerate(changed):
-        n = f"{i:03d}"
-        old_png = os.path.join(figcmp, f"src_old_{n}.png")
-        new_png = os.path.join(figcmp, f"src_new_{n}.png")
-        if not to_png(old_file, old_png):
-            warn(f"  warning: cannot convert {old_file}")
+    shown = []
+    counts = {"changed": 0, "added": 0, "removed": 0}
+    for i, e in enumerate(match_figures(old_root, new_root, old_flat, new_flat)):
+        ok = True
+        for side in ("old", "new"):
+            e[side + "_png"] = e[side + "_aspect"] = None
+            if e[side] is None:
+                continue
+            png = os.path.join(figcmp, f"{i:03d}_{side}.png")
+            size = png_size(png) if to_png(e[side], png) else None
+            if size is None:
+                warn(f"  warning: cannot convert {e[side]}")
+                ok = False
+                break
+            e[side + "_png"] = png
+            e[side + "_aspect"] = size[0] / size[1]
+        if not ok:
             continue
-        if not to_png(new_file, new_png):
-            warn(f"  warning: cannot convert {new_file}")
-            continue
-        if _visually_identical(old_png, new_png):
+        if e["status"] == "changed" and _visually_identical(e["old_png"], e["new_png"]):
             continue                               # same pixels, only bytes changed
-        say(f"  figure changed: {name}")
-        collage = os.path.join(collages, f"chg_{n}_{name}.png")
-        if make_collage(old_png, new_png, collage, figcmp):
-            manifest.append((collage, name))
-            n_changed += 1
-        else:
-            warn(f"  warning: collage failed for {name}")
+        say(f"  figure {e['status']}: {e['name']}")
+        counts[e["status"]] += 1
+        shown.append(e)
 
-    n_added = _emit_single(added, "added", "NEW ONLY", "#006622",
-                           figcmp, collages, manifest)
-    n_removed = _emit_single(removed, "removed", "OLD ONLY", "#CC2200",
-                             figcmp, collages, manifest)
-
-    parts = []
-    if n_changed:
-        parts.append(f"{n_changed} changed")
-    if n_added:
-        parts.append(f"{n_added} added")
-    if n_removed:
-        parts.append(f"{n_removed} removed")
+    parts = [f"{n} {status}" for status, n in counts.items() if n]
     if parts:
         say("figure diff: " + ", ".join(parts) + " figure(s)")
     else:
         say("figure diff: no figure changes detected")
-    return manifest
+    return shown
 
 
-def build_fig_appendix(manifest, outpdf, tmp):
-    """Build a standalone PDF (one collage per page) from the manifest."""
-    figapp = os.path.join(tmp, "figapp")
-    os.makedirs(figapp, exist_ok=True)
+# ---- figure appendix ------------------------------------------------------
+#
+# The figure changes are typeset as a LaTeX document of their own and appended
+# to the diff PDF (merge_pdfs), not drawn as ImageMagick collages: the labels
+# are real text -- searchable, selectable, sharp at any zoom -- and vector
+# figures stay vector. Accessibility rules the page keeps:
+#
+# - Colour is never the only cue. Each panel is named OLD or NEW in words, and
+#   OLD always comes first (left, or on top); each status is a word plus a
+#   symbol. A greyscale print loses nothing.
+# - The side colours are the text diff's own (latexdiff draws deletions red and
+#   additions blue), darkened to 7.5:1 on white; the grey text is 6:1.
+# - \pdfgentounicode makes copied and extracted text come out as typed.
+#
+# Comparisons are packed in document order: each is one unbreakable block, and
+# LaTeX starts a new page when the next block does not fit.
+
+APPENDIX_MARGIN = 42.52           # bp (1.5 cm), all four sides
+PANEL_H = 0.30                    # tallest panel, as a fraction of \textheight
+SIDE_W = 0.485                    # panel width side by side, fraction of \linewidth
+A4 = (595.28, 841.89)             # bp
+_A5_SHORT, _A5_LONG = 419.53, 595.28
+_A3_SHORT, _A3_LONG = 841.89, 1190.55
+
+# pdflatex includes these directly (.eps through epstopdf); anything else goes
+# in as the rasterised PNG.
+APPENDIX_NATIVE = (".pdf", ".png", ".jpg", ".jpeg", ".eps")
+
+_MEDIABOX_RE = re.compile(
+    rb"/MediaBox\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s*\]")
+_STREAM_RE = re.compile(rb"(?<!end)stream\r?\n")
+
+
+def pdf_page_size(path):
+    """(width, height) in bp of a PDF's first /MediaBox, or None. pdfTeX keeps
+    its page objects in compressed object streams, so those are inflated
+    (zlib) when the plain bytes hold no /MediaBox."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    m = _MEDIABOX_RE.search(data)
+    if m is None:
+        for sm in _STREAM_RE.finditer(data):
+            if b"/ObjStm" not in data[max(0, sm.start() - 300):sm.start()]:
+                continue
+            end = data.find(b"endstream", sm.end())
+            if end < 0:
+                break
+            try:
+                chunk = zlib.decompressobj().decompress(data[sm.end():end])
+            except zlib.error:
+                continue
+            m = _MEDIABOX_RE.search(chunk)
+            if m:
+                break
+    if m is None:
+        return None
+    x0, y0, x1, y1 = (float(v) for v in m.groups())
+    w, h = abs(x1 - x0), abs(y1 - y0)
+    return (w, h) if w > 0 and h > 0 else None
+
+
+def appendix_page_size(size):
+    """The appendix's page size for a paper of `size` (bp, or None). A normal
+    document size -- A5 up to A3, either orientation, letter included -- is
+    kept, so a printed diff has one page size throughout. Anything else (an
+    8x10 cm demo, beamer slides, an A0 poster) gets A4 in the paper's
+    orientation: the comparisons need room, and a poster's would be huge."""
+    if not size:
+        return A4
+    w, h = size
+    short, long_ = sorted((w, h))
+    if _A5_SHORT - 1 <= short <= _A3_SHORT + 1 and _A5_LONG - 1 <= long_ <= _A3_LONG + 1:
+        return (w, h)
+    return (A4[1], A4[0]) if w > h else A4
+
+
+def _fit(aspect, box_w, box_h):
+    """Size of an image of the given aspect (w/h) scaled to fit box_w x box_h."""
+    if box_w / aspect <= box_h:
+        return box_w, box_w / aspect
+    return box_h * aspect, box_h
+
+
+def choose_layout(aspects, line_w, text_h):
+    """'side' (OLD left of NEW) or 'stack' (OLD above NEW): whichever shows the
+    present panels larger. Every panel is capped at PANEL_H of the text height,
+    so the difference is only the width: wide figures stack, tall and square
+    ones sit side by side (the more compact of the two on a tie)."""
+    box_h = PANEL_H * text_h
+
+    def area(box_w):
+        return sum(w * h for w, h in (_fit(a, box_w, box_h) for a in aspects))
+
+    return "stack" if area(line_w) > area(SIDE_W * line_w) * 1.001 else "side"
+
+
+def side_labels(old_src, new_src, main_old, main_new):
+    """The text after OLD / NEW on each panel: where that side came from.
+    Two sides with the same source name (one archive holding both versions,
+    or two exports both called Paper.zip) add the main .tex to tell them
+    apart; if that matches too, there is nothing to add."""
+    if old_src != new_src:
+        return old_src, new_src
+    if main_old != main_new:
+        return f"{old_src} · {main_old}", f"{new_src} · {main_new}"
+    return None, None
+
+
+_TEX_ESCAPES = {
+    "\\": r"\textbackslash{}", "{": r"\{", "}": r"\}", "$": r"\$", "&": r"\&",
+    "#": r"\#", "%": r"\%", "_": r"\_", "~": r"\textasciitilde{}",
+    "^": r"\textasciicircum{}",
+    "‘": "`", "’": "'", "“": "``", "”": "''",
+    "–": "--", "—": "---", "…": r"\ldots{}", " ": "~",
+}
+
+
+def tex_escape(text):
+    """Plain text as LaTeX source that typesets it verbatim. Characters beyond
+    Latin-1 and Latin Extended-A, which the appendix's T1 fonts cannot draw,
+    become '?': a file name in Cyrillic must not cost the whole page."""
+    out = []
+    for ch in text:
+        if ch in _TEX_ESCAPES:
+            out.append(_TEX_ESCAPES[ch])
+        elif " " <= ch <= "~" or "¡" <= ch <= "ſ":
+            out.append(ch)
+        elif ch in "\t\n\r":
+            out.append(" ")
+        else:
+            out.append("?")
+    return "".join(out)
+
+
+def entry_title(e):
+    """The heading of one comparison: the figure's \\label, else its file."""
+    ref = e["new_ref"] or e["old_ref"]
+    return ref["label"] or os.path.basename(ref["path"])
+
+
+# Preamble of the designed page ("full" and "png" levels). @W@, @H@ and @M@ are
+# the page width, height and margin in bp.
+_APPENDIX_PREAMBLE = r"""\documentclass[10pt]{article}
+\usepackage[paperwidth=@W@bp,paperheight=@H@bp,margin=@M@bp]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{tgheros}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{tikz}
+\input{glyphtounicode}
+\pdfgentounicode=1
+\definecolor{ldztext}{HTML}{202124}
+\definecolor{ldzmuted}{HTML}{5F6368}
+\definecolor{ldzold}{HTML}{A61B1B}
+\definecolor{ldznew}{HTML}{0B4FB3}
+\definecolor{ldzchg}{HTML}{3C4043}
+\definecolor{ldzframe}{HTML}{9AA0A6}
+\definecolor{ldzdash}{HTML}{80868B}
+\newcommand{\ldzchip}[2]{\tikz[baseline=(c.base)]\node[draw=#1,text=#1,
+  line width=0.8bp,rounded corners=2bp,inner xsep=3.5bp,inner ysep=2bp,
+  font=\small\bfseries\boldmath](c){#2};}
+\newcommand{\ldzside}[3]{{\color{#1}\rule[-0.3ex]{2.5bp}{2ex}}\hspace{0.5em}%
+  {\small\bfseries\color{#1}#2}\ifx\relax#3\relax\else
+  \hspace{0.6em}{\small\color{ldzmuted}#3}\fi}
+\newcommand{\ldzimg}[3]{{\setlength{\fboxsep}{0pt}\setlength{\fboxrule}{0.4bp}%
+  \fcolorbox{ldzframe}{white}{\includegraphics[width=#1,height=#2,keepaspectratio]{#3}}}}
+\newcommand{\ldzabsent}[3]{\tikz\node[draw=ldzdash,dashed,line width=0.6bp,
+  rounded corners=3bp,minimum width=#1,minimum height=#2,inner sep=0pt,
+  text width=#1,align=center,text=ldzmuted,font=\small\itshape]{#3};}
+\newcommand{\ldzfoot}{{\footnotesize\color{ldzmuted}Figure changes
+  \enspace\textperiodcentered\enspace\thepage}}
+"""
+
+# Preamble of the "minimal" level: base LaTeX only (no font packages, no
+# TikZ), the same macro names, so the body is shared.
+_APPENDIX_PREAMBLE_MINIMAL = r"""\documentclass[10pt]{article}
+\usepackage[paperwidth=@W@bp,paperheight=@H@bp,margin=@M@bp]{geometry}
+\usepackage{graphicx}
+\usepackage{color}
+\definecolor{ldztext}{rgb}{0,0,0}
+\definecolor{ldzmuted}{rgb}{0.37,0.39,0.41}
+\definecolor{ldzold}{rgb}{0.65,0.11,0.11}
+\definecolor{ldznew}{rgb}{0.04,0.31,0.70}
+\definecolor{ldzchg}{rgb}{0.24,0.25,0.26}
+\newcommand{\ldzchip}[2]{\textbf{\textcolor{#1}{#2}}}
+\newcommand{\ldzside}[3]{\textbf{\textcolor{#1}{#2}}\ifx\relax#3\relax\else
+  \quad\textcolor{ldzmuted}{#3}\fi}
+\newcommand{\ldzimg}[3]{\includegraphics[width=#1,height=#2,keepaspectratio]{#3}}
+\newcommand{\ldzabsent}[3]{\fbox{\parbox[c][#2][c]{#1}{\centering\itshape #3}}}
+\newcommand{\ldzfoot}{Figure changes, page \thepage}
+"""
+
+_APPENDIX_COMMON = r"""\setlength{\parindent}{0pt}
+\raggedbottom
+\renewcommand{\thepage}{A\arabic{page}}
+\makeatletter
+\renewcommand{\@oddfoot}{\hfil\ldzfoot\hfil}
+\renewcommand{\@evenfoot}{\@oddfoot}
+\makeatother
+\newenvironment{ldzblock}{\par\noindent\begin{minipage}{\linewidth}}{\end{minipage}\par}
+\newcommand{\ldzchanged}{\ldzchip{ldzchg}{$\Delta$\,Changed}}
+\newcommand{\ldzadded}{\ldzchip{ldznew}{$+$\,Added}}
+\newcommand{\ldzremoved}{\ldzchip{ldzold}{$-$\,Removed}}
+"""
+
+_STATUS_MACRO = {"changed": r"\ldzchanged", "added": r"\ldzadded",
+                 "removed": r"\ldzremoved"}
+
+
+def _bp(x):
+    return f"{x:.2f}bp"
+
+
+def _appendix_block(e, files, layout, line_w, text_h, sources):
+    """LaTeX for one comparison: status and title, then OLD and NEW panels in
+    the given layout. `files` maps "old"/"new" to the staged include name (None
+    for the missing side of an added or removed figure)."""
+    box_h = PANEL_H * text_h
+    box_w = SIDE_W * line_w if layout == "side" else line_w
+    present = "new" if e["status"] == "added" else "old"
+    fit_w, fit_h = _fit(e[present + "_aspect"], box_w, box_h)
+
+    def panel(side):
+        colour, word = ("ldzold", "OLD") if side == "old" else ("ldznew", "NEW")
+        src = sources[0] if side == "old" else sources[1]
+        head = rf"\ldzside{{{colour}}}{{{word}}}{{{tex_escape(src) if src else ''}}}"
+        if files[side] is not None:
+            # 1bp less than the box: the frame is drawn outside the image.
+            body = rf"\ldzimg{{{_bp(box_w - 1)}}}{{{_bp(box_h - 1)}}}{{{files[side]}}}"
+        else:
+            missing = f"Not in {word} version"
+            ph = fit_h if layout == "side" else 3 * 12.0
+            body = rf"\ldzabsent{{{_bp(fit_w)}}}{{{_bp(ph)}}}{{{missing}}}"
+        return head + "\\par\\vspace{3bp}\n" + body
+
     lines = [
-        r"\documentclass[a4paper]{article}",
-        r"\usepackage[margin=1.2cm]{geometry}",
-        r"\usepackage{graphicx}",
-        r"\pagestyle{empty}",
-        r"\setlength{\parindent}{0pt}",
-        r"\begin{document}",
-        r"\begin{center}{\Large\bfseries Figure changes (OLD vs.\ NEW)}\end{center}",
-        r"\vspace{1em}",
+        r"\begin{ldzblock}",
+        _STATUS_MACRO[e["status"]] + r"\enspace{\bfseries " + tex_escape(entry_title(e)) + "}\\par",
+        r"\vspace{6bp}",
     ]
-    for i, (cpath, cname) in enumerate(manifest):
-        # graphicx reads filenames verbatim, so give it an underscore-free name.
-        img = os.path.join(figapp, f"fig{i:03d}.png")
-        shutil.copy(cpath, img)
-        esc = cname.replace("_", r"\_")           # escape for the caption
+    if layout == "side":
         lines += [
-            r"\begin{center}",
-            r"{\bfseries " + esc + r"}\\[0.5em]",
-            r"\includegraphics[width=\linewidth,height=0.85\textheight,keepaspectratio]{" + img + "}",
-            r"\end{center}",
-            r"\clearpage",
+            rf"\begin{{minipage}}[t]{{{_bp(box_w)}}}" + panel("old") + r"\end{minipage}\hfill",
+            rf"\begin{{minipage}}[t]{{{_bp(box_w)}}}" + panel("new") + r"\end{minipage}",
         ]
-    lines.append(r"\end{document}")
-    with open(os.path.join(figapp, "figures.tex"), "w") as f:
-        f.write("\n".join(lines) + "\n")
+    else:
+        lines += [panel("old") + "\\par\\vspace{9bp}", panel("new")]
+    lines.append(r"\end{ldzblock}")
+    return "\n".join(lines)
 
-    subprocess.run(["pdflatex", "-interaction=nonstopmode", "figures.tex"],
-                   cwd=figapp, stdout=DEVNULL, stderr=DEVNULL)
-    figpdf = os.path.join(figapp, "figures.pdf")
-    if not os.path.isfile(figpdf):
-        return False
-    shutil.copy(figpdf, outpdf)
-    return True
+
+def _stage_figures(entries, figapp, originals):
+    """Copy each entry's figures into the appendix dir under short,
+    underscore-free names (graphicx reads them verbatim); the original file when
+    `originals` and pdflatex can include it, the rasterised PNG otherwise.
+    Returns one {"old": name|None, "new": name|None} per entry."""
+    staged = []
+    for i, e in enumerate(entries):
+        files = {}
+        for side in ("old", "new"):
+            if e[side] is None:
+                files[side] = None
+                continue
+            ext = os.path.splitext(e[side])[1].lower()
+            src = e[side] if originals and ext in APPENDIX_NATIVE else e[side + "_png"]
+            name = f"f{i:03d}{side[0]}{os.path.splitext(src)[1].lower()}"
+            shutil.copy(src, os.path.join(figapp, name))
+            files[side] = name
+        staged.append(files)
+    return staged
+
+
+def appendix_tex(entries, staged, page, sources, level, single=False):
+    """The appendix as LaTeX source. `level` is "full" or "png" (the designed
+    page; the two differ only in what _stage_figures copied) or "minimal" (base
+    LaTeX only). `single` puts each comparison on a page of its own with
+    nothing else, for the -c export to crop."""
+    w, h = page
+    line_w = w - 2 * APPENDIX_MARGIN
+    text_h = h - 2 * APPENDIX_MARGIN
+    pre = _APPENDIX_PREAMBLE_MINIMAL if level == "minimal" else _APPENDIX_PREAMBLE
+    pre = (pre.replace("@W@", f"{w:.2f}").replace("@H@", f"{h:.2f}")
+           .replace("@M@", f"{APPENDIX_MARGIN:.2f}"))
+    out = [pre + _APPENDIX_COMMON]
+    if single:
+        out.append(r"\pagestyle{empty}")
+    out += [r"\begin{document}", r"\color{ldztext}"]
+    if not single:
+        counts = {}
+        for e in entries:
+            counts[e["status"]] = counts.get(e["status"], 0) + 1
+        summary = r"\enspace\textperiodcentered\enspace ".join(
+            f"{counts[s]} {s}" for s in ("changed", "added", "removed") if s in counts)
+        out += [r"{\Large\bfseries Figure changes}\par\vspace{3bp}",
+                r"{\color{ldzmuted}" + summary + r"}\par\vspace{16bp}"]
+    for e, files in zip(entries, staged):
+        aspects = [e[s + "_aspect"] for s in ("old", "new") if e[s + "_aspect"]]
+        layout = choose_layout(aspects, line_w, text_h)
+        out.append(_appendix_block(e, files, layout, line_w, text_h, sources))
+        out.append(r"\clearpage" if single else r"\vspace{20bp plus 8bp minus 6bp}")
+    out.append(r"\end{document}")
+    return "\n".join(out) + "\n"
+
+
+def _compile_clean(figapp, job):
+    """Run pdflatex twice (the second pass settles references) and report
+    whether a PDF came out with no error in the log. A nonstopmode run carries
+    on past most errors, so a PDF alone does not mean a correct page."""
+    for _ in range(2):
+        subprocess.run(["pdflatex", "-interaction=nonstopmode", job + ".tex"],
+                       cwd=figapp, stdout=DEVNULL, stderr=DEVNULL)
+    log = read_text(os.path.join(figapp, job + ".log"))
+    return (os.path.isfile(os.path.join(figapp, job + ".pdf"))
+            and not re.search(r"^! ", log, re.M))
+
+
+APPENDIX_LEVELS = ("full", "png", "minimal")
+
+
+def build_fig_appendix(entries, figapp, page, sources):
+    """Typeset the appendix; return (pdf_path, level), or (None, None). Falls
+    back a level at a time: the designed page with the original figure files,
+    then with the rasterised PNGs (a figure pdflatex chokes on), then base
+    LaTeX only (a missing font or TikZ)."""
+    for level in APPENDIX_LEVELS:
+        d = os.path.join(figapp, level)
+        os.makedirs(d, exist_ok=True)
+        staged = _stage_figures(entries, d, originals=(level == "full"))
+        with open(os.path.join(d, "figures.tex"), "w", encoding="utf-8") as f:
+            f.write(appendix_tex(entries, staged, page, sources, level))
+        if _compile_clean(d, "figures"):
+            if level != "full":
+                warn(f"warning: figure appendix fell back to the '{level}' style")
+            return os.path.join(d, "figures.pdf"), level
+    return None, None
+
+
+def _unique_names(entries):
+    """One file-name stem per entry: the entry's name, with -2, -3, ... added
+    when several share it (the panels of one multi-panel figure)."""
+    seen, names = {}, []
+    for e in entries:
+        n = seen[e["name"]] = seen.get(e["name"], 0) + 1
+        names.append(e["name"] if n == 1 else f"{e['name']}-{n}")
+    return names
+
+
+def export_fig_pngs(entries, figapp, page, sources, level, fig_dir):
+    """-c DIR: one tightly cropped <name>_diff.png per comparison, the same
+    design as the appendix. The comparisons are typeset one per page, then
+    each page is rasterised and trimmed to its content. Returns how many
+    were written."""
+    d = os.path.join(figapp, "export")
+    os.makedirs(d, exist_ok=True)
+    staged = _stage_figures(entries, d, originals=(level == "full"))
+    with open(os.path.join(d, "blocks.tex"), "w", encoding="utf-8") as f:
+        f.write(appendix_tex(entries, staged, page, sources, level, single=True))
+    _compile_clean(d, "blocks")
+    if not os.path.isfile(os.path.join(d, "blocks.pdf")):
+        return 0
+    if not _im(["-density", "200", os.path.join(d, "blocks.pdf"),
+                "-background", "white", "-alpha", "remove", "-alpha", "off",
+                "-trim", "+repage", "-bordercolor", "white", "-border", "32",
+                "-depth", "8", os.path.join(d, "block-%03d.png")]):
+        return 0
+    os.makedirs(fig_dir, exist_ok=True)
+    n = 0
+    for i, stem in enumerate(_unique_names(entries)):
+        png = os.path.join(d, f"block-{i:03d}.png")
+        if os.path.isfile(png):
+            shutil.copy(png, os.path.join(fig_dir, f"{stem}_diff.png"))
+            n += 1
+    return n
 
 
 # Ghostscript re-encodes every image as JPEG by default, the paper's own
@@ -1261,24 +1579,32 @@ def main(argv):
         shutil.copy(os.path.join(build, "diff.pdf"), out_pdf)
 
         say("comparing figures...")
-        manifest = compare_figures(old_root, new_root, old_flat, new_flat, tmp)
+        figs = compare_figures(old_root, new_root, old_flat, new_flat, tmp)
 
-        if manifest:
+        if figs and (embed_figs or fig_dir):
+            page = appendix_page_size(pdf_page_size(out_pdf))
+            sources = side_labels(f"arXiv:{old_id}" if old_id else os.path.basename(old_arc),
+                                  f"arXiv:{new_id}" if new_id else os.path.basename(new_arc),
+                                  main_old, main_new)
+            figapp = os.path.join(tmp, "figapp")
+            figures_pdf, level = build_fig_appendix(figs, figapp, page, sources)
+
             if fig_dir:
-                os.makedirs(fig_dir, exist_ok=True)
-                for cpath, cname in manifest:
-                    shutil.copy(cpath, os.path.join(fig_dir, f"{cname}_diff.png"))
-                say(f"wrote figure collages to: {fig_dir}/")
+                n = export_fig_pngs(figs, figapp, page, sources, level or "minimal", fig_dir)
+                if n:
+                    say(f"wrote {n} figure comparison PNG(s) to: {fig_dir}/")
+                else:
+                    warn("warning: could not write the figure comparison PNGs")
 
             if embed_figs:
-                figures_pdf = os.path.join(tmp, "figures.pdf")
                 combined = os.path.join(tmp, "combined.pdf")
-                if build_fig_appendix(manifest, figures_pdf, tmp) \
-                        and merge_pdfs(out_pdf, figures_pdf, combined):
+                if figures_pdf is None:
+                    warn("warning: could not typeset the figure comparisons; the PDF has none")
+                elif merge_pdfs(out_pdf, figures_pdf, combined):
                     shutil.copy(combined, out_pdf)
-                    say(f"appended {len(manifest)} figure collage page(s) to the PDF")
+                    say(f"appended {len(figs)} figure comparison(s) to the PDF")
                 else:
-                    warn("warning: could not embed figure collages (need pdfunite or gs to merge);")
+                    warn("warning: could not embed the figure comparisons (need gs or pdfunite to merge);")
                     warn("         re-run with -c DIR to save them as PNG files instead.")
 
         say(f"wrote: {out_pdf}")
