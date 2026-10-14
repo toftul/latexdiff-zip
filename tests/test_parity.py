@@ -78,6 +78,14 @@ def pdf_pages(path):
     return int(m.group(1)) if m else None
 
 
+def pdf_info(path, field):
+    """One field of the PDF's Info dictionary (pdfinfo), or ''."""
+    out = subprocess.run(["pdfinfo", path], stdout=subprocess.PIPE,
+                         stderr=subprocess.DEVNULL, text=True).stdout
+    m = re.search(rf"^{field}:[ \t]*(.*)$", out, re.MULTILINE)
+    return m.group(1).strip() if m else ""
+
+
 def pdf_images(path):
     """How many images the PDF embeds. The only way to tell from the outside
     that a *deleted* figure was drawn: its file has to have been found at
@@ -113,7 +121,7 @@ class Case:
                  args=(), exit=0, need_lines=(), forbid_lines=(),
                  want_pdf=True, min_pages=1, max_pages=None, min_images=0,
                  probe_present=(), probe_absent=(), probe_once=(),
-                 outline_present=(), fast=False, network=False):
+                 outline_present=(), pdf_title=None, fast=False, network=False):
         self.name = name
         self.old_dir = old_dir
         self.new_dir = new_dir
@@ -133,6 +141,7 @@ class Case:
         self.probe_absent = probe_absent
         self.probe_once = probe_once
         self.outline_present = outline_present
+        self.pdf_title = pdf_title
         self.fast = fast
         self.network = network
 
@@ -266,13 +275,15 @@ CASES = [
          need_lines=["figure changed: fig_plot", "figure diff: 1 changed"],
          min_pages=2),
 
-    # A hyperref paper keeps its own bookmarks once the figure appendix is
-    # merged in. pdfunite dropped the whole outline (and sent every internal
-    # link to page 1); gs keeps it.
+    # A hyperref paper keeps its own bookmarks and title once the figure
+    # appendix is merged in. pdfunite dropped the whole outline (and sent every
+    # internal link to page 1); gs keeps it, and the appendix writes no Info
+    # fields that could replace the paper's title.
     Case("figure_hyperref_outline",
          old_dir="figure-hyperref/old", new_dir="figure-hyperref/new",
          need_lines=["figure diff: 1 changed", "appended"],
-         outline_present=["Introduction", "Conclusion"], min_pages=2),
+         outline_present=["Introduction", "Conclusion"],
+         pdf_title="Bookmarks and links", min_pages=2),
 
     # A commented-out figure is not part of either version, and a leftover
     # labelled figure is not paired by position with an unrelated one. Before
@@ -347,6 +358,14 @@ def _make_test(case):
 
             if case.want_pdf:
                 self.assertTrue(os.path.exists(out_pdf), f"no PDF produced{ctx}")
+                if HAVE_PDFINFO:
+                    # Every diff PDF names the tool and version that made it.
+                    creator = pdf_info(out_pdf, "Creator")
+                    self.assertTrue(creator.startswith("latexdiff-zip "),
+                                    f"PDF Creator is {creator!r}{ctx}")
+                    if case.pdf_title is not None:
+                        title = pdf_info(out_pdf, "Title")
+                        self.assertEqual(title, case.pdf_title, f"PDF Title{ctx}")
                 if HAVE_PDFINFO and case.min_pages:
                     pages = pdf_pages(out_pdf)
                     self.assertIsNotNone(pages, f"pdfinfo gave no page count{ctx}")

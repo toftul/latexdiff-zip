@@ -53,6 +53,7 @@ container.
 | `-t TYPE` | `latexdiff --type` value (`UNDERLINE`, `CFONT`, `CCHANGEBAR`, …), or `BLUE`: added text in blue, deleted text not shown. Default: `UNDERLINE`. |
 | `-F` | Do **not** add the figure comparison appendix to the PDF (added by default). |
 | `-c DIR` | Also save each figure comparison as a PNG in `DIR`. |
+| `-V`, `--version` | Print the version and exit. Each run also prints it on the first line of its log. |
 | `-h` | Show help. |
 
 ## Examples

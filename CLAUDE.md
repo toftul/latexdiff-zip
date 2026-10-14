@@ -46,6 +46,10 @@ python3 -m py_compile webapp/app.py webapp/mains.py   # web app syntax
 # document order, the generated LaTeX). No LaTeX, no ImageMagick; instant.
 python3 tests/test_figpage.py
 
+# Version: -V, the first log line, CHANGELOG.md and the web footer all agree
+# with the engine's __version__. Instant.
+python3 tests/test_version.py
+
 # Web-only unit tests for the main-.tex scan (no Flask, no LaTeX, ~1s). Includes
 # the drift guard tying webapp/mains.py to the engine's detect_main.
 python3 tests/test_mains.py
@@ -70,6 +74,26 @@ use them to smoke-test changes end-to-end. `examples/make-example.sh` regenerate
 `tests/cases/dirac-diff` with the working-tree engine — rerun it after changing the appendix
 design. See `tests/README.md` for the oracle's cases and
 knobs.
+
+### Versions and the changelog
+
+SemVer, with **one source of truth: `__version__` in `latexdiff-zip.py`**. `-V`, the first
+log line (`latexdiff-zip X.Y.Z`), the arXiv User-Agent and the PDF's Creator field read it;
+`webapp/app.py` imports it for the page footer. `tests/test_version.py` fails if
+`CHANGELOG.md`'s newest dated release is not `__version__`.
+
+- Every user-visible change adds a line under `## [Unreleased]` in `CHANGELOG.md`
+  (Keep a Changelog sections: Added / Changed / Fixed / Removed), written to `RULES-DOCS.md`.
+- To release: bump `__version__`, rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, add a new
+  empty `[Unreleased]`, update the link references at the bottom, commit, then
+  `git tag -a vX.Y.Z`. A changed CLI option or output contract is a major bump, a new
+  feature minor, a fix patch.
+- The PDF's Creator is set twice on purpose: `_creator_hook` (a `\AtBeginDocument` hook
+  passed on pdflatex's command line, via `\hypersetup` when hyperref is loaded) for a diff
+  with no appendix, and a `DOCINFO` pdfmark in the gs merge, because gs lets the later file's
+  Info fields win. For the same reason the appendix disables `\pdfinfo`: hyperref's empty
+  `/Title` and `/Author` would otherwise erase the paper's (oracle case
+  `figure_hyperref_outline` checks the title).
 
 ### Testing constraint
 

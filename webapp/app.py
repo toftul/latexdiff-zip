@@ -71,10 +71,11 @@ def _safe_name(filename, ext):
     return base if base.lower().endswith(ext) else "archive" + ext
 
 
-# Reuse the engine's arXiv id/URL normaliser so there is one implementation,
-# not a copy that can drift. The engine is latexdiff-zip.py: the repo-local file
-# in dev, or the installed `latexdiff-zip` on PATH inside the container.
-def _load_normalize_arxiv():
+# Reuse the engine's arXiv id/URL normaliser and its version, so there is one
+# implementation and one version number, not copies that can drift. The engine
+# is latexdiff-zip.py: the repo-local file in dev, or the installed
+# `latexdiff-zip` on PATH inside the container.
+def _load_engine():
     here = os.path.dirname(os.path.abspath(__file__))
     for path in (os.path.normpath(os.path.join(here, "..", "latexdiff-zip.py")),
                  shutil.which("latexdiff-zip")):
@@ -84,9 +85,8 @@ def _load_normalize_arxiv():
             spec = importlib.util.spec_from_file_location("ldz_engine", path)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)   # import-only: the engine guards main()
-            fn = getattr(mod, "normalize_arxiv", None)
-            if callable(fn):
-                return fn
+            if callable(getattr(mod, "normalize_arxiv", None)):
+                return mod
         except Exception:
             continue
     return None
@@ -109,7 +109,10 @@ def _fallback_arxiv_id(raw):
     return s if _ARXIV_ID_RE.fullmatch(s) else None
 
 
-normalize_arxiv = _load_normalize_arxiv() or _fallback_arxiv_id
+_engine = _load_engine()
+normalize_arxiv = _engine.normalize_arxiv if _engine else _fallback_arxiv_id
+# Shown in the page footer; empty (and hidden) if the engine can't be found.
+ENGINE_VERSION = getattr(_engine, "__version__", "")
 
 # How long a single build is allowed to run before we give up.
 BUILD_TIMEOUT = int(os.environ.get("LDZ_TIMEOUT", "600"))
@@ -250,7 +253,7 @@ def _run_build(job_dir, cmd):
 @app.get("/")
 def index():
     return render_template("index.html", diff_types=DIFF_TYPE_LABELS,
-                           max_upload_mb=MAX_UPLOAD_MB)
+                           max_upload_mb=MAX_UPLOAD_MB, version=ENGINE_VERSION)
 
 
 @app.post("/inspect")

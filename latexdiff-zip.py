@@ -10,6 +10,7 @@ https://arxiv.org/abs/...); its source is then fetched from arxiv.org.
 
 Usage: latexdiff-zip [-m main.tex] [-M main.tex] [-o output.pdf] [-t TYPE]
                      [-F] [-c DIR] OLD NEW
+       latexdiff-zip -V
 
 The engine is stdlib-only: archives are unpacked with zipfile/tarfile and arXiv
 sources fetched with urllib, so unzip/tar/curl are not required. It shells out
@@ -37,7 +38,11 @@ import urllib.request
 import zipfile
 import zlib
 
-UA = "latexdiff-zip (+https://github.com/toftul/latexdiff-zip)"
+# The release, in SemVer. The web app reads it from here too, so it is the one
+# place to bump; CHANGELOG.md says what each release changed.
+__version__ = "2.3.0"
+
+UA = f"latexdiff-zip/{__version__} (+https://github.com/toftul/latexdiff-zip)"
 DEVNULL = subprocess.DEVNULL
 
 # latexdiff's default graphics markup ("new-only") comments deleted
@@ -153,7 +158,8 @@ def usage():
         "  -t TYPE        latexdiff --type value (default: UNDERLINE), or BLUE:\n"
         "                 additions in blue, deletions not shown at all.\n"
         "  -F             Do not append the figure comparisons to the PDF (on by default).\n"
-        "  -c DIR         Also save each figure comparison as a PNG in DIR."
+        "  -c DIR         Also save each figure comparison as a PNG in DIR.\n"
+        "  -V, --version  Print the version and exit."
     )
     sys.exit(2)
 
@@ -166,7 +172,7 @@ def parse_args(argv):
     embed_figs = True
     fig_dir = ""
     try:
-        opts, rest = getopt.getopt(argv, "m:M:o:t:c:Fh")
+        opts, rest = getopt.getopt(argv, "m:M:o:t:c:FhV", ["version", "help"])
     except getopt.GetoptError:
         usage()
     for opt, val in opts:
@@ -182,8 +188,11 @@ def parse_args(argv):
             fig_dir = val
         elif opt == "-F":
             embed_figs = False
-        elif opt == "-h":
+        elif opt in ("-h", "--help"):
             usage()
+        elif opt in ("-V", "--version"):
+            say(f"latexdiff-zip {__version__}")
+            sys.exit(0)
     if len(rest) != 2:
         usage()
     return {
@@ -1243,6 +1252,9 @@ _APPENDIX_PREAMBLE = r"""\documentclass[10pt]{article}
 \usepackage{tabularx}
 \usepackage[hidelinks,pdfpagelabels=false,bookmarksopen=true]{hyperref}
 \usepackage{bookmark}
+% No Info fields of its own: in the merge, gs lets the later file's fields win,
+% and hyperref's empty /Title and /Author would erase the paper's.
+\makeatletter\let\pdfinfo\@gobble\makeatother
 \input{glyphtounicode}
 \pdfgentounicode=1
 \definecolor{ldztext}{HTML}{202124}
@@ -1530,14 +1542,19 @@ def merge_pdfs(a, b, out):
     """Concatenate PDFs a and b into out with whichever tool is available.
 
     Ghostscript first: it keeps both documents' bookmarks and internal links,
-    shifting the second one's page targets. pdfunite drops the outline and
-    points every internal link at page 1 -- a hyperref paper's own links
-    included -- so it is only the fallback. gs is slower (about 12 s for a
+    shifting the second one's page targets. pdfunite drops the outline, the
+    Info fields (title, author, Creator) and points every internal link at
+    page 1 -- a hyperref paper's own links included -- so it is only the
+    fallback. gs is slower (about 12 s for a
     100-page paper against well under a second) but the build costs more."""
     if which("gs"):
+        # The Info fields are merged too, the later file's winning; the
+        # appendix writes none (see _APPENDIX_PREAMBLE) except pdfTeX's own
+        # Creator, which the pdfmark puts back.
         ok = subprocess.run(
             ["gs", "-q", "-dNOPAUSE", "-dBATCH", "-sDEVICE=pdfwrite",
-             *GS_LOSSLESS, f"-sOutputFile={out}", a, b],
+             *GS_LOSSLESS, f"-sOutputFile={out}", a, b,
+             "-c", f"[ /Creator (latexdiff-zip {__version__}) /DOCINFO pdfmark"],
             stdout=DEVNULL, stderr=DEVNULL).returncode == 0
         if ok and os.path.isfile(out):
             return True
@@ -1549,8 +1566,20 @@ def merge_pdfs(a, b, out):
 
 # ---- PDF build ------------------------------------------------------------
 
+def _creator_hook():
+    """TeX code read before diff.tex that names this tool, with its version, as
+    the PDF's Creator. A document with hyperref gets it through \\hypersetup,
+    since hyperref writes the Info dictionary itself: a hook set before
+    \\documentclass runs after the packages' own. Anything else gets \\pdfinfo.
+    The gs merge keeps the first file's Info, so the final PDF carries it."""
+    creator = f"latexdiff-zip {__version__}"
+    return (r"\AtBeginDocument{\ifdefined\hypersetup\hypersetup{pdfcreator={" + creator
+            + r"}}\else\pdfinfo{/Creator (" + creator + r")}\fi}")
+
+
 def runtex(build):
-    subprocess.run(["pdflatex", "-interaction=nonstopmode", "diff.tex"],
+    subprocess.run(["pdflatex", "-interaction=nonstopmode", "-jobname=diff",
+                    _creator_hook() + r"\input{diff.tex}"],
                    cwd=build, stdout=DEVNULL, stderr=DEVNULL)
 
 
@@ -1616,6 +1645,7 @@ def hide_deletions(diff_tex):
 
 def main(argv):
     args = parse_args(argv)
+    say(f"latexdiff-zip {__version__}")           # a pasted log says what made the PDF
     main_old = args["main_old"]
     main_new = args["main_new"]
     out_pdf = args["out_pdf"]

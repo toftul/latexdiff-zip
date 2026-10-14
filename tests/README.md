@@ -83,6 +83,20 @@ python3 tests/test_figpage.py
 
 The typeset result itself is covered end to end by the `figure_*` oracle cases.
 
+## `test_version.py`
+
+Ties the version number together. The engine's `__version__` is the only place
+to bump, and this suite checks everything else against it: `-V`/`--version`,
+the first log line of a run, the newest dated release in `CHANGELOG.md` (with
+its link), and the version the web app shows. No LaTeX, no Flask; instant:
+
+```sh
+python3 tests/test_version.py
+```
+
+The oracle adds one check to every case that builds a PDF: its Creator field
+names `latexdiff-zip`.
+
 ## `test_mains.py`
 
 A separate, much smaller suite for `webapp/mains.py` — the archive scan that

@@ -86,6 +86,6 @@ The figure comparison is optional. Without these tools you still get the text di
   pixel comparison that skips figures with no visible change.
 - **Ghostscript** (`gs`): adds the appendix to the PDF and keeps the bookmarks and links of
   both. If `gs` is not installed, the engine uses `pdfunite` (poppler). Then the PDF loses its
-  bookmarks and internal links.
+  bookmarks, its internal links, and its title and author.
 - The appendix uses the LaTeX packages `tgheros`, `tikz`, `hyperref` and `bookmark`. Without
   them, it falls back to a plain layout that needs only base LaTeX.

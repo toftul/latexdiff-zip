@@ -52,6 +52,7 @@ You can run `latexdiff` *inside* Overleaf. [Here's the trick.](OVERLEAF.md)
 - [**Usage & options**](USAGE.md) — every CLI flag, how it works, and limitations.
 - [**Figure comparison**](FIGURES.md) — how changed figures get paired and diffed.
 - [**Self-hosting**](DEPLOY.md) — put your own public copy online with a Cloudflare Tunnel.
+- [**Changelog**](CHANGELOG.md) — what changed in each version.
 
 ## Similar projects
 
