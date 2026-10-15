@@ -10,6 +10,16 @@ diff PDF names it in its Creator field.
 
 ## [Unreleased]
 
+### Changed
+
+- The dark theme of the web page uses neutral grays, as in macOS dark mode, in place of dark
+  navy. The page is lighter. All text keeps a contrast of at least 4.5:1.
+
+### Fixed
+
+- In the dark theme, the drop-down lists and text boxes in Options are dark. Before, they
+  stayed white.
+
 ## [2.4.0] - 2026-10-15
 
 ### Added
