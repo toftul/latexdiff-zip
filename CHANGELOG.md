@@ -10,6 +10,8 @@ diff PDF names it in its Creator field.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-10-15
+
 ### Added
 
 - Each side can be a single `.tex` file. The folder that holds it is the project, so
@@ -200,7 +202,8 @@ The first release, with the bash engine `latexdiff-zip.sh` (tag `v1-bash`).
 - `latexdiff-zip.py`, a Python port of the engine. The container and the web UI use it.
 - `tests/test_parity.py`, a test suite that runs the engine over fixture projects.
 
-[Unreleased]: https://github.com/toftul/latexdiff-zip/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/toftul/latexdiff-zip/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/toftul/latexdiff-zip/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/toftul/latexdiff-zip/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/toftul/latexdiff-zip/compare/v2.3.3...v2.4.0
 [2.3.3]: https://github.com/toftul/latexdiff-zip/compare/v2.3.2...v2.3.3
