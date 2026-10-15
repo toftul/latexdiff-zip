@@ -10,6 +10,8 @@ diff PDF names it in its Creator field.
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-10-15
+
 ### Changed
 
 - The dark theme of the web page uses neutral grays, as in macOS dark mode, in place of dark
@@ -172,7 +174,8 @@ The first release, with the bash engine `latexdiff-zip.sh` (tag `v1-bash`).
 - `latexdiff-zip.py`, a Python port of the engine. The container and the web UI use it.
 - `tests/test_parity.py`, a test suite that runs the engine over fixture projects.
 
-[Unreleased]: https://github.com/toftul/latexdiff-zip/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/toftul/latexdiff-zip/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/toftul/latexdiff-zip/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/toftul/latexdiff-zip/compare/v2.3.3...v2.4.0
 [2.3.3]: https://github.com/toftul/latexdiff-zip/compare/v2.3.2...v2.3.3
 [2.3.2]: https://github.com/toftul/latexdiff-zip/compare/v2.3.1...v2.3.2

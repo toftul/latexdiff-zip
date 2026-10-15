@@ -40,7 +40,7 @@ import zlib
 
 # The release, in SemVer. The web app reads it from here too, so it is the one
 # place to bump; CHANGELOG.md says what each release changed.
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 UA = f"latexdiff-zip/{__version__} (+https://github.com/toftul/latexdiff-zip)"
 SITE_URL = "https://latexdiff.toftul.net/"
