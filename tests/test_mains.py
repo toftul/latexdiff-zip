@@ -143,6 +143,23 @@ class TestCandidates(unittest.TestCase):
         make_zip(self.path("empty.zip"), {})
         self.assertEqual(mains.candidates(self.path("empty.zip")), [])
 
+    # ---- a single uploaded .tex -------------------------------------------
+
+    def test_is_main_tex(self):
+        """A lone .tex upload must be a main file, by the engine's rule."""
+        cases = {"main.tex": DOC, "chap.tex": "just a fragment\n",
+                 "cmt.tex": "% \\documentclass{article}\n",
+                 "indented.tex": "  \\documentclass{article}\n"}
+        engine_re = _engine()._DOCCLASS_RE
+        for name, text in cases.items():
+            with open(self.path(name), "w") as f:
+                f.write(text)
+            self.assertEqual(mains.is_main_tex(self.path(name)),
+                             bool(engine_re.search(text)), name)
+        self.assertTrue(mains.is_main_tex(self.path("main.tex")))
+        self.assertFalse(mains.is_main_tex(self.path("chap.tex")))
+        self.assertFalse(mains.is_main_tex(self.path("nope.tex")))
+
     # ---- drift guard -------------------------------------------------------
 
     def test_agrees_with_engine(self):

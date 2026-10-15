@@ -61,9 +61,20 @@ extract path of either engine.
 | `figure-pdf-over-png` | `plot.pdf` and `plot.png` side by side, only the PDF edited: the engine compares the file pdflatex draws (`.pdf` first), so 1 changed. |
 | `figure-hyperref` | A hyperref paper keeps its own bookmarks after the figure appendix is merged in (checked with `pdftohtml -xml`). |
 | `figure-multipanel` | Three `\includegraphics` under one `\label`: panels pair one-to-one, so only the edited panel is reported (1 changed, none added/removed). |
+| `tex-same-folder` | `old.tex` and `new.tex` in one folder with a figure and `refs.bib`, given as `.tex` files: the folder is the project, the bibliography is diffed, the PDF lands in that folder, nothing else is written there, and a stale `diff.tex`/`diff.aux` in the folder does not leak into the build. |
+| `tex-missing-assets` | A single `.tex` per side whose figure and `.bib` are absent: the PDF is still made, and one warning line names `fig1` and `refs.bib`. |
+
+The `.tex` and folder cases (`tex_*`, `dir_*`) copy fixture trees into the temp dir
+instead of zipping them, and also reuse `article-nobib` and `same-archive`: two folders, a
+`.tex` against a `.zip`, two folders given as directories (one holding only a project
+subfolder, one with a trailing slash), and one folder given twice. `unchanged` checks that a
+run writes nothing into a project folder, and `default_out` runs without `-o` to check where
+the PDF goes. The fast cases build their inputs from `files` (a sparse file stands in for a
+folder over the 150 MB cap).
 
 Fixtures hold only source (`.tex`/`.bib`, and a shipped `.bbl` where that is the
-scenario) — never build artifacts. The engine extracts and builds in a temp
+scenario) — never build artifacts, except the stale `diff.tex`/`diff.aux` that
+`tex-same-folder` exists to test. The engine extracts and builds in a temp
 dir, so runs never dirty the fixtures.
 
 The two network-only cases (`arxiv_natbib`, `arxiv_oldstyle_selfdiff`) take

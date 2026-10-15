@@ -8,9 +8,10 @@ A tool that produces a `latexdiff` track-changes PDF between two LaTeX project a
 (typically Overleaf history `.zip` exports or arXiv `.tar.gz` source downloads), including
 side-by-side OLD/NEW comparisons of any changed figures. Each side may be a `.zip` or a tar
 archive (`.tar`, `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`, `.tar.xz`/`.txz`), dispatched on the
-filename extension, and the two sides may differ. Either side may instead be an arXiv id or
-URL (`normalize_arxiv` recognises it; `fetch_arxiv` downloads `arxiv.org/e-print/<id>` and
-handles all three e-print shapes: tarball, gzipped single `.tex`, and pdf-only which errors).
+filename extension, and the two sides may differ. A side may also be a main `.tex` file (its
+folder is the project) or a project folder, or an arXiv id or URL (`normalize_arxiv`
+recognises it; `fetch_arxiv` downloads `arxiv.org/e-print/<id>` and handles all three e-print
+shapes: tarball, gzipped single `.tex`, and pdf-only which errors).
 It is delivered at three layers, each wrapping the one below:
 
 1. **`latexdiff-zip.py`** — the engine. A single self-contained, **stdlib-only** Python
@@ -49,6 +50,10 @@ python3 tests/test_figpage.py
 # Version: -V, the first log line, CHANGELOG.md and the web footer all agree
 # with the engine's __version__. Instant.
 python3 tests/test_version.py
+
+# Input planning (what each OLD/NEW argument is, which files a folder input
+# copies, the 150 MB cap) and the missing-files scan of the build log. Instant.
+python3 tests/test_inputs.py
 
 # Web-only unit tests for the main-.tex scan (no Flask, no LaTeX, ~1s). Includes
 # the drift guard tying webapp/mains.py to the engine's detect_main.
@@ -129,15 +134,16 @@ the engine itself can still be exercised directly on the host.
 
 ## Architecture & non-obvious design decisions
 
-**`latexdiff-zip.py` pipeline:** extract both (`extract_archive` dispatches on extension —
-`zipfile` for `.zip`, `tarfile` for tar archives, which auto-detects gzip/bzip2/xz; arXiv
-sides are fetched by `fetch_arxiv` over HTTPS with `urllib` instead) → descend
-into a single top-level dir if present → auto-detect the main `.tex` (the one with
-`\documentclass`) → `latexpand` each into one
-flat file → for BibTeX docs, compile each side once + `bibtex` and re-flatten with
-`latexpand --expand-bbl` so bibliography changes get diffed → `latexdiff` the two → copy
-the **new** project's assets into a build dir → compile → compare figures → typeset the
-figure appendix and merge it into the PDF.
+**`latexdiff-zip.py` pipeline:** check both inputs first (`plan_side`: kind, a `.tex`'s
+`\documentclass`, `-m`/`-M` against a named `.tex`, folder size) → extract both
+(`extract_archive` dispatches on extension — `zipfile` for `.zip`, `tarfile` for tar archives,
+which auto-detects gzip/bzip2/xz; arXiv sides are fetched by `fetch_arxiv` over HTTPS with
+`urllib`; `.tex` and folder sides are copied) → descend into a single top-level dir if
+present (not for a `.tex`: its folder is fixed) → auto-detect the main `.tex` (the one with
+`\documentclass`) → `latexpand` each into one flat file → for BibTeX docs, compile each side
+once + `bibtex` and re-flatten with `latexpand --expand-bbl` so bibliography changes get
+diffed → copy the **new** project's assets into a build dir → `latexdiff` the two → compile →
+compare figures → typeset the figure appendix and merge it into the PDF.
 
 - **Bibliography expansion is all-or-nothing and has a fallback ladder.** If any side that
   needs a `.bbl` can't produce one, *both* sides stay unexpanded (expanding one side only
@@ -151,6 +157,22 @@ figure appendix and merge it into the PDF.
   `\bibdata{diffNotes}` and reads `diff.bbl` at the end of the inline `thebibliography`, so
   `build_diff_pdf(bib_inline=True)` must not adopt the shipped `<main>.bbl` there.
 
+- **A `.tex` or folder side is copied, never built in place.** `make_bbl` compiles each side
+  in its project root, which would leave `.aux`/`.bbl` files in the user's folder. The copy
+  (`folder_files`) skips dot-files and dot-folders, does not follow directory symlinks, and
+  stops at `FOLDER_LIMIT_MB` (150, no override by design: `old.tex new.tex` in `~/Downloads`
+  must not copy gigabytes three times). One folder on both sides is copied once and shared:
+  the two mains have different jobnames, so their `.aux`/`.bbl` don't collide. The default
+  output is beside `NEW` (`dirname(abspath(NEW))`, so `v2/` means beside `v2`); the engine
+  never writes into a project folder, and the oracle's `unchanged` check enforces that.
+- **The build dir is filled before latexdiff writes `diff.tex`**, and the copy skips
+  `DIFF_BYPRODUCTS` (a stale `diff.tex`/`diff.aux`/… from a hand-run latexdiff in the
+  project folder would otherwise be read as this build's; oracle case `tex_same_folder`).
+- **Missing files are named, not fatal.** After the build ladder, `missing_files` reads
+  `diff.log` (unwrapped at TeX's 79-byte line breaks) and `diff.blg` for files pdflatex,
+  bibtex or biber could not find, and prints one `warning: the document uses files that are
+  missing: …` line. The web page matches that exact line to show a notice above the PDF, so
+  keep its wording.
 - **Manual pdflatex sequence, deliberately not latexmk.** latexdiff markup routinely makes
   pdflatex exit non-zero (e.g. amsmath "Multiple \label's"), and latexmk's rerun heuristics
   then stop too early, leaving `??` refs. The fixed `pdflatex → bib backend → pdflatex ×2`
@@ -265,6 +287,13 @@ uploading, and reports upload progress — hence `XMLHttpRequest` rather than `f
 `scanArchive`, since only XHR exposes `upload.onprogress`. Staged files are cleaned up by age
 like job dirs, so `POST /jobs` must keep treating an unknown id as "expired, pick the file
 again"; posting the archives directly still works as a fallback.
+
+**A single `.tex` upload** is staged like an archive, alone in its uuid directory, which the
+engine then takes as the project. `/inspect` rejects one without `\documentclass`
+(`mains.is_main_tex`, the engine's rule) when the file is picked, and answers `kind: "tex"`
+so the page disables that side's main-file picker. A `.tex` posted straight to `/jobs` is
+saved in `job_dir/<old|new>/`, not in `job_dir`, which also holds `log.txt`, `status` and
+`diff.pdf`. Folders cannot be uploaded: directory inputs are CLI only.
 
 **Main-.tex suggestions (`webapp/mains.py` + `POST /inspect`):** the same `/inspect` call fills
 each side's main-.tex dropdown (`candidates()` reads the entry list and the top-level `.tex`

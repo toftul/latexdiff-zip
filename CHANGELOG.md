@@ -10,6 +10,32 @@ diff PDF names it in its Creator field.
 
 ## [Unreleased]
 
+### Added
+
+- Each side can be a single `.tex` file. The folder that holds it is the project, so
+  `./latexdiff-zip.py old.tex new.tex` uses the figures, `.bib` files and `\input` files next
+  to them, and writes `diff.pdf` into that folder. A `.tex` file without `\documentclass`
+  stops the run with an error. `-m` and `-M` are not needed for a `.tex` side. If you give
+  one, it must name that same file.
+- Each side can be a project folder: `./latexdiff-zip.py v1/ v2/`. A folder that holds only
+  one subfolder is the same as that subfolder, as in an archive. `diff.pdf` goes beside the
+  NEW folder, not into it.
+- The engine copies a folder input, or the folder of a `.tex` input, into a temporary folder,
+  and never writes into your project. The copy skips dot-files and dot-folders such as
+  `.git`. Above 150 MB, the run stops with an error.
+- One log line names the files that the document uses but the project does not have:
+  `warning: the document uses files that are missing: fig1, refs.bib`. Before, the PDF had
+  gaps where these files go, and the log did not say why. The exit status stays 0.
+- The web page takes one `.tex` file in each drop zone. It refuses a `.tex` file without
+  `\documentclass`, and a file of the wrong type, when you choose the file, and shows why on
+  the drop zone. When files are missing, a notice above the PDF names them.
+
+### Fixed
+
+- A `diff.tex` or `diff.aux` in the NEW project, for example from an earlier manual run of
+  latexdiff, no longer gets into the build. Before, it could replace the new diff, and the PDF
+  showed the old one.
+
 ## [2.4.1] - 2026-10-15
 
 ### Changed

@@ -1,9 +1,9 @@
 """Tiny web front-end for latexdiff-zip.
 
-Takes two project versions — each an uploaded archive or an arXiv id — runs
-the `latexdiff-zip` CLI (already on PATH in the container image) as a
-background job, streams its log to the browser live via Server-Sent Events,
-and serves the resulting diff PDF when it is ready.
+Takes two project versions — each an uploaded archive, a single uploaded main
+.tex, or an arXiv id — runs the `latexdiff-zip` CLI (already on PATH in the
+container image) as a background job, streams its log to the browser live via
+Server-Sent Events, and serves the resulting diff PDF when it is ready.
 """
 
 import importlib.machinery
@@ -47,19 +47,27 @@ DIFF_TYPE_LABELS = [
 ]
 DIFF_TYPES = [t for t, _ in DIFF_TYPE_LABELS]
 
-# Archive extensions the CLI can extract. The CLI dispatches on the file
-# extension, so an upload must be saved under a name that ends in one of these
-# (longest match first, so .tar.gz wins over .gz-style suffixes).
-ARCHIVE_EXTS = (".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".tbz2", ".txz", ".tar", ".zip")
+# What an upload may be: an archive the CLI can extract, or a single main .tex.
+# The CLI dispatches on the file extension, so an upload must be saved under a
+# name that ends in one of these (longest match first, so .tar.gz wins over
+# .gz-style suffixes).
+UPLOAD_EXTS = (".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".tbz2", ".txz", ".tar", ".zip",
+               ".tex")
+UPLOAD_KINDS = "a .tex file, a .zip, or a tar archive (.tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz)"
 
 
-def _archive_ext(filename):
-    """Return the recognised archive suffix of an upload, or '' if unsupported."""
+def _upload_ext(filename):
+    """Return the recognised suffix of an upload, or '' if unsupported."""
     name = (filename or "").lower()
-    for ext in ARCHIVE_EXTS:
+    for ext in UPLOAD_EXTS:
         if name.endswith(ext):
             return ext
     return ""
+
+
+def _not_a_main(filename):
+    return (f"{os.path.basename(filename)} has no \\documentclass line, so it is not "
+            "a main file. Choose the project's main .tex, or a .zip of the whole project.")
 
 
 def _safe_name(filename, ext):
@@ -292,12 +300,9 @@ def inspect():
     upload = request.files.get("archive")
     if not upload or not upload.filename:
         return jsonify(error="No archive was sent."), 400
-    ext = _archive_ext(upload.filename)
+    ext = _upload_ext(upload.filename)
     if not ext:
-        return jsonify(
-            error="The upload must be a .zip or a tar archive "
-                  "(.tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz)."
-        ), 400
+        return jsonify(error=f"The upload must be {UPLOAD_KINDS}."), 400
 
     _cleanup_old_uploads()
 
@@ -307,12 +312,25 @@ def inspect():
     path = os.path.join(staged_dir, _safe_name(upload.filename, ext))
     upload.save(path)
 
+    # A lone .tex is its own main file (the engine takes its folder -- here,
+    # the staging dir, holding only it -- as the project), so there is nothing
+    # to choose; it just has to be a main file, which is checked now rather
+    # than in a failed build.
+    if ext == ".tex":
+        if not mains.is_main_tex(path):
+            shutil.rmtree(staged_dir, ignore_errors=True)
+            _log(f"inspect {upload.filename}: rejected, no \\documentclass")
+            return jsonify(error=_not_a_main(upload.filename)), 400
+        _log(f"inspect {upload.filename} ({os.path.getsize(path)} bytes) staged as "
+             f"{upload_id}: single .tex")
+        return jsonify(candidates=[], upload=upload_id, kind="tex")
+
     # Scan from the saved copy: the stream has been consumed by save().
     found = mains.candidates(path)
     _log(f"inspect {upload.filename} ({os.path.getsize(path)} bytes) staged as "
          f"{upload_id}: {len(found)} candidate main(s)"
          + (f" ({', '.join(found)})" if found else ""))
-    return jsonify(candidates=found, upload=upload_id)
+    return jsonify(candidates=found, upload=upload_id, kind="archive")
 
 
 @app.post("/jobs")
@@ -340,15 +358,12 @@ def create_job():
                 error=f"The {label} upload has expired. Please choose the file again."
             ), 400
         elif upload and upload.filename:
-            # The CLI extracts by extension, so reject anything we can't unpack
-            # and keep the real suffix when saving (.tar.gz vs .zip leads to
-            # different handling).
-            ext = _archive_ext(upload.filename)
+            # The CLI dispatches on the extension, so reject anything it can't
+            # read and keep the real suffix when saving (.tar.gz vs .zip vs
+            # .tex leads to different handling).
+            ext = _upload_ext(upload.filename)
             if not ext:
-                return jsonify(
-                    error=f"The {label} upload must be a .zip or a tar archive "
-                          "(.tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz)."
-                ), 400
+                return jsonify(error=f"The {label} upload must be {UPLOAD_KINDS}."), 400
             sides.append(("file", upload, ext))
         elif raw_id.strip():
             arxiv = normalize_arxiv(raw_id.strip())
@@ -361,7 +376,7 @@ def create_job():
         else:
             return jsonify(
                 error=f"Please provide the {label} version: choose an archive "
-                      "or enter an arXiv id."
+                      "or a .tex file, or enter an arXiv id."
             ), 400
 
     diff_type = request.form.get("diff_type", "UNDERLINE")
@@ -390,8 +405,14 @@ def create_job():
             args.append(value)
             descs.append(os.path.basename(value))
         elif kind == "file":
-            path = os.path.join(job_dir, name + ext)
+            # A folder of its own: the CLI takes a .tex's folder as its
+            # project, and job_dir also holds log.txt, status and diff.pdf.
+            os.makedirs(os.path.join(job_dir, name))
+            path = os.path.join(job_dir, name, _safe_name(value.filename, ext))
             value.save(path)
+            if ext == ".tex" and not mains.is_main_tex(path):
+                shutil.rmtree(job_dir, ignore_errors=True)
+                return jsonify(error=_not_a_main(value.filename)), 400
             args.append(path)
             descs.append(value.filename)
         else:

@@ -159,6 +159,18 @@ class StagedUploadTest(unittest.TestCase):
         self.assertEqual(app._safe_name("bug_test_old.zip", ".zip"), "bug_test_old.zip")
         self.assertEqual(app._safe_name("v2 final.tar.gz", ".tar.gz"), "v2_final.tar.gz")
 
+    def test_upload_ext_takes_archives_and_a_tex(self):
+        self.assertEqual(app._upload_ext("v2 final.tar.gz"), ".tar.gz")
+        self.assertEqual(app._upload_ext("paper.zip"), ".zip")
+        self.assertEqual(app._upload_ext("Paper.TEX"), ".tex")
+        self.assertEqual(app._upload_ext("notes.txt"), "")
+        self.assertEqual(app._upload_ext("paper.tex.gz"), "")
+
+    def test_safe_name_keeps_a_tex_name(self):
+        """The engine logs the main file by this name ("main file: paper.tex")."""
+        self.assertEqual(app._safe_name("my paper.tex", ".tex"), "my_paper.tex")
+        self.assertEqual(app._safe_name("Paper.TEX", ".tex"), "Paper.TEX")
+
     def test_safe_name_strips_paths_and_odd_characters(self):
         self.assertEqual(app._safe_name("../../etc/passwd.zip", ".zip"), "passwd.zip")
         self.assertEqual(app._safe_name("../.hidden.zip", ".zip"), "hidden.zip")

@@ -3,9 +3,10 @@
 
 Two snapshots downloaded from Overleaf history, or two arXiv source tarballs,
 become one track-changes PDF -- text *and* figures. Each side may be a local
-archive (.zip or a tar: .tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz), and
-the two sides may use different formats. Either side may instead be an arXiv
-paper given as an id or URL (2401.12345v1, arXiv:hep-th/9901001,
+archive (.zip or a tar: .tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz), a
+main .tex file (its folder is the project), or a project folder, and the two
+sides may use different formats. Either side may instead be an arXiv paper
+given as an id or URL (2401.12345v1, arXiv:hep-th/9901001,
 https://arxiv.org/abs/...); its source is then fetched from arxiv.org.
 
 Usage: latexdiff-zip [-m main.tex] [-M main.tex] [-o output.pdf] [-t TYPE]
@@ -83,6 +84,22 @@ RESOLVE_EXTS = ("", ".pdf", ".png", ".jpg", ".mps", ".jpeg", ".jbig2", ".jb2",
                 ".PDF", ".PNG", ".JPG", ".JPEG", ".JBIG2", ".JB2", ".eps",
                 ".ps", ".svg", ".tiff", ".bmp")
 
+# A folder input (a directory, or the folder of a .tex) is copied into the
+# temp dir first: the bibliography step compiles each side in its project
+# root, which would leave .aux and .bbl files in the user's folder. The cap
+# stops `old.tex new.tex` run in a crowded folder such as ~/Downloads from
+# copying gigabytes (three times: old, new, build). A bigger project can still
+# come in as an archive.
+FOLDER_LIMIT_MB = 150
+
+# Files a LaTeX run with jobname "diff" writes, plus latexdiff's own diff.tex.
+# A project folder where latexdiff was once run by hand holds a stale set; in
+# the build dir they would be read back as this build's.
+DIFF_BYPRODUCTS = frozenset("diff" + e for e in (
+    ".tex", ".pdf", ".aux", ".log", ".out", ".toc", ".lof", ".lot", ".bbl",
+    ".blg", ".bcf", ".run.xml", ".nav", ".snm", ".vrb", ".fls", ".fdb_latexmk",
+    ".synctex.gz", ".dvi", ".xdv", ".idx", ".ind", ".ilg"))
+
 _DOCCLASS_RE = re.compile(r"^[^\S\n]*\\documentclass", re.M)
 _BIBLATEX_RE = re.compile(
     r"^[^%]*\\(usepackage(\[[^]]*\])?\{[^}]*biblatex|addbibresource|printbibliography)",
@@ -146,17 +163,27 @@ def usage():
     warn(
         f"Usage: {prog} [-m main.tex] [-M main.tex] [-o output.pdf] [-t TYPE] [-F] [-L] [-c DIR] OLD NEW\n"
         "\n"
-        "  OLD, NEW       The two versions to compare. Each is either a local project\n"
-        "                 archive -- .zip or tar (.tar, .tar.gz/.tgz, .tar.bz2/.tbz2,\n"
-        "                 .tar.xz/.txz), e.g. an Overleaf history export or an arXiv\n"
-        "                 source download -- or an arXiv paper to fetch, given as an id\n"
-        "                 (2401.12345v1, hep-th/9901001), an arXiv:<id> reference, or an\n"
-        "                 arxiv.org URL (abs/pdf/e-print). The two sides may differ.\n"
+        "  OLD, NEW       The two versions to compare. Each is one of:\n"
+        "                 - a project archive: .zip or tar (.tar, .tar.gz/.tgz,\n"
+        "                   .tar.bz2/.tbz2, .tar.xz/.txz), e.g. an Overleaf history\n"
+        "                   export or an arXiv source download;\n"
+        "                 - a main .tex file: its folder is the project, so figures\n"
+        "                   and .bib files next to it are used (old.tex new.tex);\n"
+        "                 - a project folder (v1/ v2/);\n"
+        "                 - an arXiv paper to fetch: an id (2401.12345v1,\n"
+        "                   hep-th/9901001), an arXiv:<id> reference, or an arxiv.org\n"
+        "                   URL (abs/pdf/e-print).\n"
+        "                 The two sides may differ. A folder is copied, skipping\n"
+        f"                 dot-files, and may hold at most {FOLDER_LIMIT_MB} MB.\n"
         "  -m main.tex    Main .tex file in the OLD project (relative to its root).\n"
         "                 Auto-detected (the file containing \\documentclass) if omitted.\n"
+        "                 Not needed when OLD is a .tex file.\n"
         "  -M main.tex    Main .tex file in the NEW project. Auto-detected if omitted.\n"
         "                 The two projects may use different main-file names.\n"
-        "  -o output.pdf  Output PDF path (default: <dir of NEW>/diff.pdf).\n"
+        "                 Not needed when NEW is a .tex file.\n"
+        "  -o output.pdf  Output PDF path (default: diff.pdf beside NEW -- in the\n"
+        "                 folder of a .tex, next to an archive or folder, or in the\n"
+        "                 current directory for an arXiv id).\n"
         "  -t TYPE        latexdiff --type value (default: UNDERLINE), or BLUE:\n"
         "                 additions in blue, deletions not shown at all.\n"
         "  -F             Do not append the figure comparisons to the PDF (on by default).\n"
@@ -321,6 +348,96 @@ def descend_single_root(d):
     if len(entries) == 1 and os.path.isdir(entries[0]):
         return entries[0]
     return d
+
+
+def input_kind(arg):
+    """How to read one OLD/NEW argument: 'dir' (a project folder), 'tex' (a
+    main file; its folder is the project), 'archive', or 'arxiv'. A local path
+    wins, so a file named like an arXiv id still works. Exits on anything else."""
+    if os.path.isdir(arg):
+        return "dir"
+    if os.path.isfile(arg):
+        if arg.lower().endswith(".tex"):
+            return "tex"
+        if archive_tool(arg):
+            return "archive"
+        warn(f"error: unsupported archive type: {arg}")
+        die("       supported: a .tex file, a folder, .zip, .tar, .tar.gz/.tgz, "
+            ".tar.bz2/.tbz2, .tar.xz/.txz")
+    if normalize_arxiv(arg) is not None:
+        return "arxiv"
+    die(f"error: not a file, folder or arXiv id: {arg}")
+
+
+def folder_files(src, what, keep=""):
+    """The files a folder input brings along, as (path, path relative to src):
+    everything under `src` except dot-files and dot-folders (.git, .DS_Store),
+    without following directory symlinks. `keep` is a top-level name taken even
+    so -- the .tex the user named. Exits once they pass FOLDER_LIMIT_MB."""
+    limit = FOLDER_LIMIT_MB * 1000 * 1000
+    found, total = [], 0
+    for dirpath, dirs, files in os.walk(src):
+        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+        for fn in sorted(files):
+            full = os.path.join(dirpath, fn)
+            rel = os.path.relpath(full, src)
+            if (fn.startswith(".") and rel != keep) or not os.path.isfile(full):
+                continue
+            total += os.path.getsize(full)
+            if total > limit:
+                warn(f"error: {what} holds more than {FOLDER_LIMIT_MB} MB of files, "
+                     "the most a folder input may copy")
+                die("       put the project in a folder of its own, or pass a .zip of it")
+            found.append((full, rel))
+    return found
+
+
+def copy_files(files, dest):
+    for full, rel in files:
+        dst = os.path.join(dest, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(full, dst)
+
+
+def plan_side(arg, label, flag, main):
+    """Check one OLD/NEW argument before anything is built, and say how to get
+    it: a dict with `kind` (see input_kind), `src` (archive path, arXiv id, or
+    folder), and for a folder its `files` and, for a .tex, the `main` it names.
+    `main` is the -m/-M value given, if any."""
+    kind = input_kind(arg)
+    side = {"kind": kind, "main": main}
+    if kind == "arxiv":
+        side["src"] = normalize_arxiv(arg)
+    elif kind == "archive":
+        side["src"] = os.path.abspath(arg)
+    elif kind == "dir":
+        side["src"] = os.path.realpath(arg)
+        side["files"] = folder_files(side["src"], f"folder {arg}")
+    else:
+        name = os.path.basename(arg)
+        if not _DOCCLASS_RE.search(read_text(arg)):
+            warn(f"error: {arg} has no \\documentclass line, so it is not a main file")
+            die("       pass the project's main .tex (or a folder or .zip of the project)")
+        if main and os.path.normpath(main) != name:
+            warn(f"error: {flag} {main} does not match the {label} file {name}")
+            die(f"       a .tex input is already its project's main file; leave out {flag}")
+        side["main"] = name
+        side["src"] = os.path.realpath(os.path.dirname(os.path.abspath(arg)))
+        side["files"] = folder_files(side["src"], f"the folder of {arg} ({side['src']})",
+                                     keep=name)
+    return side
+
+
+def same_project(a, b):
+    """Whether two planned sides are one and the same project -- one archive,
+    arXiv paper or folder holding both an old and a new main."""
+    if a["kind"] == b["kind"] == "archive":
+        return (a["src"] == b["src"]
+                or filecmp.cmp(a["src"], b["src"], shallow=False))
+    folders = ("dir", "tex")
+    if a["kind"] in folders and b["kind"] in folders:
+        return a["src"] == b["src"]
+    return a["kind"] == b["kind"] and a["src"] == b["src"]
 
 
 # ---- project: main file ---------------------------------------------------
@@ -1670,6 +1787,36 @@ def build_diff_pdf(build, main_new, bib_inline=False, label=True):
     return os.path.isfile(os.path.join(build, "diff.pdf"))
 
 
+# What pdflatex, bibtex and biber print for a file they cannot find: a figure
+# (graphicx, or pdftex.def when the name has its extension), an \input file, a
+# package or class, a .bib or .bst.
+_MISSING_TEX_RE = re.compile(r"^! (?:LaTeX|Package \S+) Error: File `([^']+)' not found", re.M)
+_MISSING_BIB_RE = re.compile(r"^I couldn't open (?:database|style) file (\S+)", re.M)
+_MISSING_BIBER_RE = re.compile(r"ERROR - Cannot find '([^']+)'")
+
+
+def missing_files(build):
+    """Files the diff build asked for and could not find, in the order first
+    asked for. The .log is read as bytes (latin-1) and unwrapped: TeX breaks
+    its lines at 79 bytes, which can split a long file name in two."""
+    try:
+        with open(os.path.join(build, "diff.log"), "rb") as f:
+            log = f.read().decode("latin-1")
+    except OSError:
+        log = ""
+    log = re.sub(r"^(.{79})\n", r"\1", log, flags=re.M)
+    blg = read_text(os.path.join(build, "diff.blg"))
+    names = []
+    for m in (*_MISSING_TEX_RE.finditer(log), *_MISSING_BIB_RE.finditer(blg),
+              *_MISSING_BIBER_RE.finditer(blg)):
+        name = m.group(1)
+        if m.re is _MISSING_TEX_RE:          # undo the latin-1 decode
+            name = name.encode("latin-1").decode("utf-8", errors="replace")
+        if name not in names:
+            names.append(name)
+    return names
+
+
 def hide_deletions(diff_tex):
     """Turn a CFONT diff into the BLUE style by adding BLUE_PREAMBLE right
     before \\begin{document}. Works on bytes so a non-UTF-8 source survives."""
@@ -1698,38 +1845,24 @@ def main(argv):
     old_arc = args["old_arc"]
     new_arc = args["new_arc"]
 
-    # Each side is either a local archive file or an arXiv paper to fetch; a
-    # local file wins, so a file named like an id still works.
-    old_id = new_id = None
-    if not os.path.isfile(old_arc):
-        old_id = normalize_arxiv(old_arc)
-        if old_id is None:
-            die(f"error: not a file or arXiv id: {old_arc}")
-    if not os.path.isfile(new_arc):
-        new_id = normalize_arxiv(new_arc)
-        if new_id is None:
-            die(f"error: not a file or arXiv id: {new_arc}")
+    # Each side is an archive, a .tex (its folder is the project), a project
+    # folder, or an arXiv paper to fetch. Both are checked -- type, main file,
+    # folder size -- before any work starts.
+    old = plan_side(old_arc, "OLD", "-m", main_old)
+    new = plan_side(new_arc, "NEW", "-M", main_new)
+    main_old, main_new = old["main"], new["main"]
 
     for cmd in ("latexdiff", "latexpand", "pdflatex"):
         if not which(cmd):
             die(f"error: missing dependency: {cmd}")
 
-    # Validate each local archive's type (arXiv sides aren't local files).
-    for f in (old_arc, new_arc):
-        if not os.path.isfile(f):
-            continue
-        if not archive_tool(f):
-            warn(f"error: unsupported archive type: {f}")
-            die("       supported: .zip, .tar, .tar.gz/.tgz, .tar.bz2/.tbz2, .tar.xz/.txz")
-
-    old_arc_abs = None if old_id else os.path.abspath(old_arc)
-    new_arc_abs = None if new_id else os.path.abspath(new_arc)
-
     if not out_pdf:
-        if new_id:
-            out_pdf = os.path.join(os.getcwd(), "diff.pdf")   # NEW fetched: no archive to sit beside
+        if new["kind"] == "arxiv":
+            out_pdf = os.path.join(os.getcwd(), "diff.pdf")   # NEW fetched: nothing local to sit beside
         else:
-            out_pdf = os.path.join(os.path.dirname(new_arc_abs), "diff.pdf")
+            # Beside NEW: in a .tex's own folder, next to an archive or folder.
+            # abspath drops a trailing slash, so v2/ never means "inside v2".
+            out_pdf = os.path.join(os.path.dirname(os.path.abspath(new_arc)), "diff.pdf")
     out_dir = os.path.dirname(out_pdf) or "."
     os.makedirs(out_dir, exist_ok=True)
     out_pdf = os.path.join(os.path.abspath(out_dir), os.path.basename(out_pdf))
@@ -1744,26 +1877,33 @@ def main(argv):
         for d in (old_dir, new_dir, build):
             os.makedirs(d)
 
-        if old_id:
-            fetch_arxiv(old_id, old_dir, tmp)
-        else:
-            extract_archive(old_arc_abs, old_dir)
-        if new_id:
-            fetch_arxiv(new_id, new_dir, tmp)
-        else:
-            extract_archive(new_arc_abs, new_dir)
+        # Same-input special case: the two sides are the *same* archive, id or
+        # folder, so a project holding both an old and a new main can be diffed
+        # by naming just one side (auto-detection of the other excludes the
+        # named main).
+        same_input = same_project(old, new)
 
-        old_root = descend_single_root(old_dir)
-        new_root = descend_single_root(new_dir)
+        def unpack(side, d, copied=False):
+            """Fetch, extract or copy one side into `d`; return its project root."""
+            if side["kind"] == "arxiv":
+                fetch_arxiv(side["src"], d, tmp)
+            elif side["kind"] == "archive":
+                extract_archive(side["src"], d)
+            elif not copied:
+                copy_files(side["files"], d)
+            # A .tex names its own folder; anything else may hold one project dir.
+            return d if side["kind"] == "tex" else descend_single_root(d)
 
-        # Same-input special case: the two sides are the *same* archive/id, so a
-        # project holding both an old and a new main can be diffed by naming
-        # just one side (auto-detection of the other excludes the named main).
-        if old_id or new_id:
-            same_input = old_id == new_id
+        old_root = unpack(old, old_dir)
+        if same_input and new["kind"] in ("dir", "tex"):
+            # One folder on both sides is copied once. The two mains have
+            # different jobnames, so their .aux and .bbl files don't collide.
+            have = {rel for _full, rel in old["files"]}
+            copy_files([f for f in new["files"] if f[1] not in have], old_dir)
+            new_root = unpack(new, old_dir, copied=True)
         else:
-            same_input = (old_arc_abs == new_arc_abs
-                          or filecmp.cmp(old_arc_abs, new_arc_abs, shallow=False))
+            new_root = unpack(new, new_dir)
+
         excl_old = main_new if same_input else ""
         excl_new = main_old if same_input else ""
         if not main_old:
@@ -1851,6 +1991,20 @@ def main(argv):
         def diff_written():
             return os.path.isfile(diff_tex) and os.path.getsize(diff_tex) > 0
 
+        # Copy every non-main file from the new project into the build dir so
+        # figures, .bib, .cls, .sty and the like resolve during compilation.
+        # Before latexdiff writes diff.tex, and never a stale diff.* of the
+        # project's own (DIFF_BYPRODUCTS), so the build reads only its own.
+        for dirpath, _dirs, files in os.walk(new_root):
+            for fn in files:
+                full = os.path.join(dirpath, fn)
+                rel = os.path.relpath(full, new_root)
+                if rel == main_new or rel in DIFF_BYPRODUCTS:
+                    continue
+                dst = os.path.join(build, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy(full, dst)
+
         say(f"running latexdiff (type={diff_type})...")
         gfx = [] if blue else [GRAPHICS_MARKUP]
         ld = run_latexdiff(old_flat, new_flat, gfx)
@@ -1861,18 +2015,6 @@ def main(argv):
             warn(f"latexdiff failed (status {ld.returncode}). Log:")
             warn(read_text(latexdiff_log))
             sys.exit(1)
-
-        # Copy every non-main file from the new project into the build dir so
-        # figures, .bib, .cls, .sty and the like resolve during compilation.
-        for dirpath, _dirs, files in os.walk(new_root):
-            for fn in files:
-                full = os.path.join(dirpath, fn)
-                rel = os.path.relpath(full, new_root)
-                if rel == main_new:
-                    continue
-                dst = os.path.join(build, rel)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy(full, dst)
 
         # Figures the new version dropped or renamed: the deleted
         # \includegraphics is live in the diff, so its file must be here too.
@@ -1898,6 +2040,12 @@ def main(argv):
             warn("warning: build failed with deleted-figure markup; retrying without it")
             run_latexdiff(cur_old, cur_new, [])
             build_diff_pdf(build, main_new, bib_inline, page_label)
+
+        # A file the document asks for and the project lacks leaves a hole in
+        # the PDF (or stops the build) with no sign of it outside the log.
+        missing = missing_files(build)
+        if missing:
+            warn("warning: the document uses files that are missing: " + ", ".join(missing))
 
         if not os.path.isfile(os.path.join(build, "diff.pdf")):
             warn("error: PDF build failed. Tail of diff.log:")

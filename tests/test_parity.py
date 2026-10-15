@@ -16,9 +16,10 @@ suite at the new engine and it must stay green.
 
 Fixtures live as plain source trees under tests/cases/<name>/{old,new}/ and are
 zipped into a temp archive at run time (via stdlib zipfile -- no `zip` binary
-needed), so the same suite exercises the extract path of either engine. The
-full cases each drive a real pdflatex build and take ~10-30s; the `fast` cases
-are pure CLI-contract checks with no LaTeX run.
+needed), so the same suite exercises the extract path of either engine. Cases
+for .tex and folder inputs copy the trees into the temp dir instead. The full
+cases each drive a real pdflatex build and take ~10-30s; the `fast` cases are
+pure CLI-contract checks with no LaTeX run.
 """
 
 import os
@@ -61,6 +62,23 @@ def zip_tree(src_dir, dst_zip):
                 full = os.path.join(dirpath, name)
                 arc = os.path.relpath(full, src_dir)
                 zf.write(full, arc)
+
+
+def tree_state(root, skip=()):
+    """{relative path: (size, mtime)} of every file under root, minus `skip`
+    (absolute paths) -- enough to tell whether a run wrote into a folder."""
+    state = {}
+    for dirpath, _dirs, files in os.walk(root):
+        for name in files:
+            full = os.path.join(dirpath, name)
+            if full in skip:
+                continue
+            st = os.stat(full)
+            state[os.path.relpath(full, root)] = (st.st_size, st.st_mtime_ns)
+    return state
+
+
+TINY_DOC = "\\documentclass{article}\n\\begin{document}\nHello.\n\\end{document}\n"
 
 
 def run(argv, cwd):
@@ -114,10 +132,15 @@ def pdf_text(path):
 class Case:
     """One row of the oracle. A fixture case zips old_dir/new_dir and diffs
     them; a `same_archive` case zips `both_dir` once and passes it twice; a
-    `literal` case passes raw argv (for CLI-contract error checks)."""
+    `literal` case passes raw argv (for CLI-contract error checks), relative
+    to the temp dir, after laying out `copy` (temp path -> fixture tree; a
+    .zip destination is zipped) and `files` (temp path -> text, or a size in
+    bytes for a sparse file). `default_out` runs without -o and expects the
+    PDF there; every folder in `unchanged` must come out as it went in."""
 
     def __init__(self, name, *, old_dir=None, new_dir=None, both_dir=None,
                  same_archive=False, literal=None, unsupported_file=False,
+                 copy=None, files=None, default_out=None, unchanged=(),
                  args=(), exit=0, need_lines=(), forbid_lines=(),
                  want_pdf=True, min_pages=1, max_pages=None, min_images=0,
                  probe_present=(), probe_absent=(), probe_once=(),
@@ -129,6 +152,10 @@ class Case:
         self.same_archive = same_archive
         self.literal = literal
         self.unsupported_file = unsupported_file
+        self.copy = copy or {}
+        self.files = files or {}
+        self.default_out = default_out
+        self.unchanged = unchanged
         self.args = list(args)
         self.exit = exit
         self.need_lines = need_lines
@@ -148,6 +175,20 @@ class Case:
     def build_inputs(self, work):
         """Return the two positional input args (paths / ids) for this case,
         materialising any temp archives under `work`."""
+        for dst, src in self.copy.items():
+            src, dst = os.path.join(CASES_DIR, src), os.path.join(work, dst)
+            if dst.endswith(".zip"):
+                zip_tree(src, dst)
+            else:
+                shutil.copytree(src, dst)
+        for name, content in self.files.items():
+            path = os.path.join(work, name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                if isinstance(content, int):
+                    f.truncate(content)          # sparse: no real disk space
+                else:
+                    f.write(content.encode())
         if self.literal is not None:
             if self.unsupported_file:
                 p = os.path.join(work, "notanarchive.txt")
@@ -173,10 +214,25 @@ CASES = [
     Case("cli_one_arg", literal=["only-one"], exit=2,
          need_lines=["Usage:"], want_pdf=False, fast=True),
     Case("cli_bad_input", literal=["gibberish", "also-gibberish"], exit=1,
-         need_lines=["not a file or arXiv id"], want_pdf=False, fast=True),
+         need_lines=["not a file, folder or arXiv id"], want_pdf=False, fast=True),
     Case("cli_unsupported_type", literal=["<UNSUPPORTED>", "<UNSUPPORTED>"],
          unsupported_file=True, exit=1,
          need_lines=["unsupported archive type"], want_pdf=False, fast=True),
+    # A .tex side is its project's main file, so it must be one...
+    Case("cli_tex_not_main", files={"chap.tex": "just a chapter\n", "p.tex": TINY_DOC},
+         literal=["chap.tex", "p.tex"], exit=1,
+         need_lines=["chap.tex has no \\documentclass"], want_pdf=False, fast=True),
+    # ... and -m may only name that same file.
+    Case("cli_tex_main_mismatch", files={"p.tex": TINY_DOC},
+         literal=["p.tex", "p.tex"], args=["-m", "other.tex"], exit=1,
+         need_lines=["-m other.tex does not match the OLD file p.tex"],
+         want_pdf=False, fast=True),
+    # A folder input is copied, so it is capped. The sparse file takes no disk.
+    Case("cli_folder_over_limit",
+         files={"big/p.tex": TINY_DOC, "big/blob.bin": 151_000_000,
+                "small/p.tex": TINY_DOC},
+         literal=["big/p.tex", "small/p.tex"], exit=1,
+         need_lines=["holds more than 150 MB"], want_pdf=False, fast=True),
 
     # ---- full pipeline cases ----------------------------------------------
     Case("article_nobib", old_dir="article-nobib/old", new_dir="article-nobib/new",
@@ -210,6 +266,60 @@ CASES = [
 
     Case("same_archive", both_dir="same-archive/both", same_archive=True,
          args=["-M", "new.tex"], probe_present=["leaps"], min_pages=1),
+
+    # ---- .tex and folder inputs ---------------------------------------------
+    # The motivating case: old.tex and new.tex side by side. Their folder is
+    # the project, so the figure and refs.bib next to them are used (and the
+    # bibliography diffed), the PDF lands in that folder, and nothing else is
+    # written there. A stale diff.tex/diff.aux left by a hand-run latexdiff
+    # must not leak into the build.
+    Case("tex_same_folder", copy={"proj": "tex-same-folder/both"},
+         literal=["proj/old.tex", "proj/new.tex"], default_out="proj/diff.pdf",
+         unchanged=["proj"],
+         need_lines=["main file: old.tex (old) -> new.tex (new)",
+                     "expanding bibliographies", "no figure changes detected"],
+         forbid_lines=["error:", "missing"],
+         probe_present=["fresh", "Newcomer"], probe_absent=["STALEDIFF", "??"],
+         min_images=1),
+
+    # Two folders, one .tex in each: a changed figure is found as with archives.
+    Case("tex_two_folders",
+         copy={"v1": "article-nobib/old", "v2": "article-nobib/new"},
+         literal=["v1/main.tex", "v2/main.tex"], default_out="v2/diff.pdf",
+         unchanged=["v1", "v2"],
+         need_lines=["main file: main.tex", "figure diff: 1 changed"]),
+
+    # Mixed sides: a .tex against a .zip.
+    Case("tex_vs_zip",
+         copy={"v1": "article-nobib/old", "new.zip": "article-nobib/new"},
+         literal=["v1/main.tex", "new.zip"],
+         need_lines=["figure diff: 1 changed"]),
+
+    # Folders: `a` holds only a project folder (descended into, as an archive
+    # would be), `v2/` has a trailing slash; the PDF goes beside v2, not in it.
+    Case("dir_vs_dir",
+         copy={"a/project": "article-nobib/old", "v2": "article-nobib/new"},
+         literal=["a", "v2/"], default_out="diff.pdf", unchanged=["a", "v2"],
+         need_lines=["main file: main.tex", "figure diff: 1 changed"]),
+
+    # One folder with both mains, given twice: the same-archive rule applies.
+    Case("dir_same_folder", copy={"proj": "same-archive/both"},
+         literal=["proj", "proj"], args=["-M", "new.tex"],
+         probe_present=["leaps"]),
+
+    # Dot-folders are not copied, so they don't count toward the cap.
+    Case("dir_hidden_skipped",
+         files={"big/p.tex": TINY_DOC, "big/.git/pack": 500_000_000,
+                "small/p.tex": TINY_DOC.replace("Hello", "Hello again")},
+         literal=["big/p.tex", "small/p.tex"],
+         forbid_lines=["error:"], probe_present=["again"]),
+
+    # A single .tex whose figure and .bib were not brought along: the PDF is
+    # still made, and one line names what is missing.
+    Case("tex_missing_assets",
+         copy={"m1": "tex-missing-assets/old", "m2": "tex-missing-assets/new"},
+         literal=["m1/paper.tex", "m2/paper.tex"],
+         need_lines=["warning: the document uses files that are missing: fig1, refs.bib"]),
 
     # ---- figure-diff features ---------------------------------------------
     # \graphicspath resolution: a bare \includegraphics{plot1} (found via
@@ -355,12 +465,21 @@ def _make_test(case):
         work = tempfile.mkdtemp(prefix="ldz-parity-")
         try:
             inputs = case.build_inputs(work)
-            out_pdf = os.path.join(work, "diff.pdf")
-            argv = script_argv(case.args + ["-o", out_pdf] + inputs)
+            if case.default_out:
+                out_pdf = os.path.join(work, case.default_out)
+                out_args = []
+            else:
+                out_pdf = os.path.join(work, "diff.pdf")
+                out_args = ["-o", out_pdf]
+            before = {d: tree_state(os.path.join(work, d)) for d in case.unchanged}
+            argv = script_argv(case.args + out_args + inputs)
             code, output = run(argv, cwd=work)
 
             ctx = f"\n--- {case.name} exit={code}, argv={argv}\n{output}"
             self.assertEqual(code, case.exit, f"exit code{ctx}")
+            for d, state in before.items():
+                self.assertEqual(tree_state(os.path.join(work, d), skip={out_pdf}),
+                                 state, f"the run wrote into {d}/{ctx}")
             for needle in case.need_lines:
                 self.assertIn(needle, output, f"missing line {needle!r}{ctx}")
             for needle in case.forbid_lines:

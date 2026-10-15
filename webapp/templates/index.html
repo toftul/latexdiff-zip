@@ -175,6 +175,8 @@
     white-space: pre-wrap; word-break: break-word; max-height: 16rem; overflow: auto;
   }
   #result { margin-top: 1.25rem; display: none; }
+  /* Named files the build could not find: the PDF has holes where they go. */
+  #missing { margin: 0 0 .75rem; font-size: .9rem; color: var(--old); }
   #result iframe { width: 100%; height: 70vh; border: 1px solid var(--border); border-radius: 10px; }
   .result-actions {
     margin-top: .85rem; display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: center;
@@ -230,20 +232,20 @@
     <button type="button" id="theme-toggle" class="theme-toggle"
             aria-label="Toggle dark mode" title="Toggle dark mode">🌙</button>
     <h1><a href="{{ url_for('index') }}"><code>latexdiff-zip</code></a></h1>
-    <p class="lead">Drop two LaTeX project (from Overleaf, arXiv, etc), and get a track-changes
-      PDF. </p>
+    <p class="lead">Drop two LaTeX projects (from Overleaf, arXiv, etc.) or two single
+      <code>.tex</code> files, and get a track-changes PDF. </p>
 
     <form id="form">
       <div class="drops">
         <label class="drop old" id="drop-old">
           <div class="tag">OLD VERSION</div>
-          <div class="hint" data-default="click or drop a .zip / .tar.gz">click or drop a .zip / .tar.gz</div>
-          <input type="file" name="old_zip" accept=".zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.txz">
+          <div class="hint" data-default="click or drop a .zip / .tar.gz / .tex">click or drop a .zip / .tar.gz / .tex</div>
+          <input type="file" name="old_zip" accept=".zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.txz,.tex">
         </label>
         <label class="drop new" id="drop-new">
           <div class="tag">NEW VERSION</div>
-          <div class="hint" data-default="click or drop a .zip / .tar.gz">click or drop a .zip / .tar.gz</div>
-          <input type="file" name="new_zip" accept=".zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.txz">
+          <div class="hint" data-default="click or drop a .zip / .tar.gz / .tex">click or drop a .zip / .tar.gz / .tex</div>
+          <input type="file" name="new_zip" accept=".zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.txz,.tex">
         </label>
       </div>
 
@@ -314,6 +316,7 @@
       <img src="{{ url_for('static', filename='meme01.png') }}" alt="A cow">
     </figure>
     <div id="result">
+      <p id="missing" role="status" hidden></p>
       <iframe id="preview" title="diff preview"></iframe>
       <div class="result-actions">
         <a id="download" download="diff.pdf">⬇ Download diff.pdf</a>
@@ -424,8 +427,20 @@
       });
     p.sel.value = '';
     p.sel.title = '';
+    p.sel.disabled = false;
     p.txt.value = '';
     p.txt.hidden = true;
+  }
+
+  // The server refused the file (wrong type, or a .tex that is not a main
+  // file). Say why where the file was dropped, and drop the file, so Generate
+  // asks for another instead of building one that can only fail.
+  function rejectFile(side, msg) {
+    var zone = document.getElementById('drop-' + side);
+    zone.querySelector('input[type=file]').value = '';
+    zone.classList.remove('ready');
+    zone.querySelector('.hint').textContent = '✖ ' + msg;
+    setNote(side, msg, true);
   }
 
   // Upload one side's archive and read back its candidate main .tex files.
@@ -464,6 +479,11 @@
         var d = null;
         try { d = JSON.parse(xhr.responseText); } catch (e) {}
         setProgress(side, '');
+        if (xhr.status === 400 && d && d.error) {
+          rejectFile(side, d.error);
+          resolve();
+          return;
+        }
         if (xhr.status !== 200 || !d) {
           // A 413 here is the edge, not the app: the file cleared our own check
           // but not the proxy's. Everything else falls back to auto-detect.
@@ -478,7 +498,11 @@
         staged[side] = d.upload || null;
         var list = d.candidates || [];
         setCandidates(side, list);
-        if (list.length > 1) {
+        if (d.kind === 'tex') {
+          // A lone .tex is the main file; there is nothing to pick.
+          pickerParts(side).sel.disabled = true;
+          setNote(side, 'single .tex file — it is the main file');
+        } else if (list.length > 1) {
           // The engine refuses to guess between these, so the build would fail
           // on auto-detect. Surface it now instead of in the log afterwards.
           setNote(side, list.length + ' possible main files — pick one', true);
@@ -535,6 +559,8 @@
       if (has && file.files.length) {
         file.value = '';
         zone.classList.remove('ready');
+      }
+      if (has) {                     // also clears a rejected file's message
         var hint = zone.querySelector('.hint');
         hint.textContent = hint.dataset.default;
       }
@@ -556,6 +582,7 @@
   var download = document.getElementById('download');
   var openTab = document.getElementById('open-tab');
   var restart = document.getElementById('restart');
+  var missing = document.getElementById('missing');
   var themeToggle = document.getElementById('theme-toggle');
   var cow = document.getElementById('cow');
   var example = document.getElementById('example');
@@ -677,9 +704,9 @@
     if (!hasOld || !hasNew) {
       statusEl.className = 'err';
       statusEl.textContent = !hasOld && !hasNew
-        ? 'Please provide both versions — an archive or an arXiv ID for each.'
-        : (!hasOld ? 'Please provide the OLD version (archive or arXiv ID).'
-                   : 'Please provide the NEW version (archive or arXiv ID).');
+        ? 'Please provide both versions — an archive, a .tex file or an arXiv ID for each.'
+        : (!hasOld ? 'Please provide the OLD version (archive, .tex file or arXiv ID).'
+                   : 'Please provide the NEW version (archive, .tex file or arXiv ID).');
       return;
     }
 
@@ -697,6 +724,7 @@
 
     statusEl.className = '';
     result.style.display = 'none';
+    missing.hidden = true;
     cow.style.display = '';        // the cow watches over every build
     logWrap.style.display = 'block';
     logWrap.open = false;          // keep the log spoiler collapsed by default
@@ -742,6 +770,7 @@
         preview.src = pdfUrl;
         download.href = pdfUrl;
         openTab.href = pdfUrl;
+        showMissing(logBox.textContent);
         cow.style.display = 'none';   // the PDF is here; the cow's work is done
         example.style.display = 'none';  // the real output replaces the example
         result.style.display = 'block';
@@ -761,6 +790,19 @@
     };
   });
 
+  // The engine names, in one log line, the files the document uses but the
+  // project lacks. A single uploaded .tex hits this whenever it has figures or
+  // a .bib, and the PDF then has holes the log alone would not explain.
+  function showMissing(log) {
+    var m = /warning: the document uses files that are missing: (.*)/.exec(log);
+    missing.hidden = !m;
+    if (m) {
+      missing.textContent = 'Some files the document uses were not found, so the ' +
+        'PDF has gaps where they go: ' + m[1] + '. To include them, upload a .zip ' +
+        'of the whole project.';
+    }
+  }
+
   // "Start over": clear the previous result and selected files for a fresh run.
   restart.addEventListener('click', function () {
     finish();
@@ -779,6 +821,7 @@
     // ids, which would otherwise rebuild the previous run's archives.
     ['old', 'new'].forEach(function (side) { scanArchive(side, null); });
     result.style.display = 'none';
+    missing.hidden = true;
     logWrap.style.display = 'none';
     cow.style.display = '';        // welcome the cow back for the next run
     example.style.display = '';    // and bring the example screenshot back too

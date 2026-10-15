@@ -82,6 +82,16 @@ def _strip_single_root(names):
     return [n.split("/", 1)[1] for n in names]
 
 
+def is_main_tex(path):
+    """Whether a lone uploaded .tex is a main file, by the engine's own rule (a
+    line starting with \\documentclass). False if it can't be read."""
+    try:
+        with open(path, "rb") as f:
+            return bool(_DOCCLASS_RE.search(f.read(MAX_TEX_BYTES)))
+    except OSError:
+        return False
+
+
 def candidates(src):
     """Names of the top-level .tex files in `src` that contain \\documentclass.
 

@@ -2,7 +2,7 @@
 
 **latexdiff-zip** makes one track-changes PDF from two versions of a LaTeX project. It compares
 the text, figures, and bibliography. Each version can be an Overleaf `.zip` export, an arXiv
-`.tar.gz` source, or an arXiv ID.
+`.tar.gz` source, an arXiv ID, a single `.tex` file, or a project folder.
 
 I host a copy that you can use now: </br>
 **<https://latexdiff.toftul.net/>**
@@ -22,11 +22,13 @@ Needs $\LaTeX$ and `python`.
    chmod +x latexdiff-zip.py
    ```
 
-2. Run it on two archives, or on two arXiv IDs:
+2. Run it on two archives, two arXiv IDs, two `.tex` files, or two folders:
 
    ```sh
    ./latexdiff-zip.py old.zip new.zip
    ./latexdiff-zip.py 1706.03762v1 1706.03762v2   # from arXiv
+   ./latexdiff-zip.py old.tex new.tex             # figures and .bib next to them are used
+   ./latexdiff-zip.py v1/ v2/
    ```
 
 The script writes `diff.pdf`. [USAGE.md](USAGE.md) lists all options and gives more
@@ -40,7 +42,7 @@ Clone the repository, then run:
 ./latexdiff-zip-podman.sh old.zip new.zip
 ```
 
-The script builds the container image on the first run. Keep both archives in the current
+The script builds the container image on the first run. Keep both inputs in the current
 directory, because the container sees only that directory.
 
 ### Web UI
@@ -77,8 +79,8 @@ See [CHANGELOG.md](CHANGELOG.md) for update information.
   two uploaded files. It returns `diff.tex`, not a PDF.
 
 This project is different in three ways. It shows both versions of each changed figure in an
-appendix of the PDF. It reads Overleaf `.zip` exports, tar archives, and arXiv IDs through
-one interface. It also compares the bibliography, not only the body text.
+appendix of the PDF. It reads Overleaf `.zip` exports, tar archives, arXiv IDs, `.tex` files,
+and folders through one interface. It also compares the bibliography, not only the body text.
 
 ## Feedback
 

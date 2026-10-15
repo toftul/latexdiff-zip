@@ -16,6 +16,17 @@ every change between two arbitrary versions; this does.
 `.zip` export against an arXiv `.tar.gz`, or any combination. The format is picked from the
 filename extension.
 
+Either side may also be a **`.tex` file** (any case: `.tex`, `.TEX`). The folder that holds
+it is the project, and the file is its main file. Figures, `.bib` files and `\input` files
+next to it are used, so two files side by side need no archive:
+
+```sh
+./latexdiff-zip.py old.tex new.tex      # writes diff.pdf next to them
+```
+
+Or a side may be a **project folder**. As with an archive, the main file is the `.tex` with
+`\documentclass`, and a folder that holds only one subfolder is the same as that subfolder.
+
 Either side may instead be an **arXiv paper**, given as an id with optional version
 (`2401.12345v1`, `hep-th/9901001`), an `arXiv:<id>` reference, or an arxiv.org URL
 (`https://arxiv.org/abs/…`, `/pdf/…`, `/e-print/…`) — its source is downloaded automatically.
@@ -47,9 +58,9 @@ container.
 
 | Option | Description |
 | --- | --- |
-| `-m main.tex` | Main `.tex` file of the **old** project, relative to its root. Auto-detected if omitted. |
-| `-M main.tex` | Main `.tex` file of the **new** project. Auto-detected if omitted; the two projects may use different names. |
-| `-o output.pdf` | Output PDF path. Defaults to `diff.pdf` next to the `NEW` archive. |
+| `-m main.tex` | Main `.tex` file of the **old** project, relative to its root. Auto-detected if omitted. Not needed when `OLD` is a `.tex` file; if given, it must name that file. |
+| `-M main.tex` | Main `.tex` file of the **new** project. Auto-detected if omitted; the two projects may use different names. Not needed when `NEW` is a `.tex` file. |
+| `-o output.pdf` | Output PDF path. Defaults to `diff.pdf` beside `NEW`: in the folder of a `.tex` file, next to an archive or a folder, or in the current directory when `NEW` is an arXiv paper. |
 | `-t TYPE` | `latexdiff --type` value (`UNDERLINE`, `CFONT`, `CCHANGEBAR`, …), or `BLUE`: added text in blue, deleted text not shown. Default: `UNDERLINE`. |
 | `-F` | Do **not** add the figure comparison appendix to the PDF (added by default). |
 | `-L`, `--no-label` | Do **not** print the "Made with latexdiff-zip" label at the bottom of each page (printed by default). |
@@ -68,6 +79,18 @@ container.
 
 # Mix formats: an Overleaf .zip against an arXiv .tar.gz
 ./latexdiff-zip.py overleaf.zip arxiv.tar.gz
+
+# Two .tex files in one folder, which also holds their figures and refs.bib
+./latexdiff-zip.py old.tex new.tex
+
+# One .tex in each of two folders, so a changed figure is found too
+./latexdiff-zip.py v1/paper.tex v2/paper.tex
+
+# Two project folders (diff.pdf goes beside v2, not into it)
+./latexdiff-zip.py v1/ v2/
+
+# Your local edit against the version on arXiv
+./latexdiff-zip.py 2401.12345v1 paper.tex
 
 # Fetch straight from arXiv: two revisions of a paper, no manual downloads
 ./latexdiff-zip.py 1706.03762v1 1706.03762v2
@@ -133,6 +156,8 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
 
 1. Extracts both archives (Python's `zipfile` for `.zip`, `tarfile` for tar archives, which
    auto-detects gzip/bzip2/xz); if an archive has a single top-level folder, descends into it.
+   A `.tex` file or a folder is copied into a temporary folder, so nothing is written into
+   your project. Dot-files and dot-folders (`.git`, `.DS_Store`) are not copied.
    An arXiv side is first fetched from `arxiv.org/e-print/<id>` (a tarball, or a gzipped single
    `.tex` for one-file submissions; pdf-only submissions have no source and fail with a clear
    error).
@@ -171,11 +196,22 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
   and the PDF's Creator field still names the tool.
 - `pdflatex` runs without `-halt-on-error`: `latexdiff` markup often trips minor errors, so
   the build pushes through them. If no PDF is produced, the tail of `diff.log` is printed.
+- When the document uses a file that the project does not have, the PDF has a gap where it
+  goes. Examples are a figure, an `\input` file, a package, or a `.bib` file. The log names
+  these files in one line: `warning: the document uses files that are missing: …`. The exit
+  status stays 0. This is usual for a single `.tex` file uploaded to the web UI without its
+  figures. Upload a `.zip` of the whole project to include them.
+- A folder input, or the folder of a `.tex` input, may hold at most 150 MB, not counting
+  dot-files. The engine stops with an error above that. This prevents an accidental copy of a
+  full `~/Downloads`. Put the project in a folder of its own, or pass a `.zip` of it.
+- The engine never writes into a project folder you give it. It writes only `diff.pdf`, by
+  default beside `NEW`, and the `-c` folder. For `old.tex new.tex`, "beside" is the folder
+  of the files.
 - Each project's main file is detected independently, so the two may have different
   filenames (e.g. a renamed Overleaf project). If a project has several `\documentclass`
   files, pass `-m` (old) / `-M` (new) to disambiguate.
-- When the **same archive** is given for both sides (it holds both an old and a new main
-  file), naming just one side with `-m`/`-M` is enough — auto-detection of the other side
+- When the **same archive** (or the same folder) is given for both sides (it holds both an
+  old and a new main file), naming just one side with `-m`/`-M` is enough — auto-detection of the other side
   drops the main you named, so it won't trip over the two `\documentclass` files. Name both,
   or at least one; leaving both blank can't tell which version is old vs new and errors.
 - An arXiv id without an explicit version (`2401.12345`) fetches the **latest** version;
