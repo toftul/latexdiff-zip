@@ -276,6 +276,10 @@
           <input type="checkbox" id="embed_figs" name="embed_figs" checked>
           <label for="embed_figs">Append figure comparisons to the PDF</label>
         </div>
+        <div class="field check">
+          <input type="checkbox" id="page_label" name="page_label" checked>
+          <label for="page_label">Credit footer</label>
+        </div>
       </details>
 
       <button type="submit" class="go" id="go" aria-label="Generate diff PDF">
@@ -578,13 +582,14 @@
     }
   }
 
-  // Remember the markup style and figure toggle between visits.
+  // Remember the markup style and the two toggles between visits.
   var PREFS_KEY = 'ldz-prefs';
   function applyPrefs() {
     try {
       var p = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
       if (p.diff_type) form.diff_type.value = p.diff_type;
       if (typeof p.embed_figs === 'boolean') form.embed_figs.checked = p.embed_figs;
+      if (typeof p.page_label === 'boolean') form.page_label.checked = p.page_label;
     } catch (e) {}
   }
   function savePrefs() {
@@ -592,11 +597,13 @@
       localStorage.setItem(PREFS_KEY, JSON.stringify({
         diff_type: form.diff_type.value,
         embed_figs: form.embed_figs.checked,
+        page_label: form.page_label.checked,
       }));
     } catch (e) {}
   }
   form.diff_type.addEventListener('change', savePrefs);
   form.embed_figs.addEventListener('change', savePrefs);
+  form.page_label.addEventListener('change', savePrefs);
   applyPrefs();
 
   function setBusy(busy) { go.disabled = busy; }

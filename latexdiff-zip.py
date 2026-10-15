@@ -9,7 +9,7 @@ paper given as an id or URL (2401.12345v1, arXiv:hep-th/9901001,
 https://arxiv.org/abs/...); its source is then fetched from arxiv.org.
 
 Usage: latexdiff-zip [-m main.tex] [-M main.tex] [-o output.pdf] [-t TYPE]
-                     [-F] [-c DIR] OLD NEW
+                     [-F] [-L] [-c DIR] OLD NEW
        latexdiff-zip -V
 
 The engine is stdlib-only: archives are unpacked with zipfile/tarfile and arXiv
@@ -144,7 +144,7 @@ def tail_to_stderr(path, n):
 def usage():
     prog = os.path.basename(sys.argv[0])
     warn(
-        f"Usage: {prog} [-m main.tex] [-M main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] OLD NEW\n"
+        f"Usage: {prog} [-m main.tex] [-M main.tex] [-o output.pdf] [-t TYPE] [-F] [-L] [-c DIR] OLD NEW\n"
         "\n"
         "  OLD, NEW       The two versions to compare. Each is either a local project\n"
         "                 archive -- .zip or tar (.tar, .tar.gz/.tgz, .tar.bz2/.tbz2,\n"
@@ -160,6 +160,8 @@ def usage():
         "  -t TYPE        latexdiff --type value (default: UNDERLINE), or BLUE:\n"
         "                 additions in blue, deletions not shown at all.\n"
         "  -F             Do not append the figure comparisons to the PDF (on by default).\n"
+        "  -L, --no-label Do not print the \"Made with latexdiff-zip\" label at the\n"
+        "                 bottom of each page (on by default).\n"
         "  -c DIR         Also save each figure comparison as a PNG in DIR.\n"
         "  -V, --version  Print the version and exit."
     )
@@ -172,9 +174,10 @@ def parse_args(argv):
     out_pdf = ""
     diff_type = "UNDERLINE"
     embed_figs = True
+    page_label = True
     fig_dir = ""
     try:
-        opts, rest = getopt.getopt(argv, "m:M:o:t:c:FhV", ["version", "help"])
+        opts, rest = getopt.getopt(argv, "m:M:o:t:c:FLhV", ["version", "help", "no-label"])
     except getopt.GetoptError:
         usage()
     for opt, val in opts:
@@ -190,6 +193,8 @@ def parse_args(argv):
             fig_dir = val
         elif opt == "-F":
             embed_figs = False
+        elif opt in ("-L", "--no-label"):
+            page_label = False
         elif opt in ("-h", "--help"):
             usage()
         elif opt in ("-V", "--version"):
@@ -199,7 +204,8 @@ def parse_args(argv):
         usage()
     return {
         "main_old": main_old, "main_new": main_new, "out_pdf": out_pdf,
-        "diff_type": diff_type, "embed_figs": embed_figs, "fig_dir": fig_dir,
+        "diff_type": diff_type, "embed_figs": embed_figs, "page_label": page_label,
+        "fig_dir": fig_dir,
         "old_arc": rest[0], "new_arc": rest[1],
     }
 
@@ -1413,11 +1419,12 @@ def _stage_figures(entries, figapp, originals):
     return staged
 
 
-def appendix_tex(entries, staged, page, level, single=False):
+def appendix_tex(entries, staged, page, level, single=False, label=True):
     """The appendix as LaTeX source. `level` is "full" or "png" (the designed
     page; the two differ only in what _stage_figures copied) or "minimal" (base
     LaTeX only). `single` puts each comparison on a page of its own with
-    nothing else, for the -c export to crop."""
+    nothing else, for the -c export to crop. `label` adds the page label
+    (stamp_hook); -L turns it off."""
     w, h = page
     line_w = w - 2 * APPENDIX_MARGIN
     text_h = h - 2 * APPENDIX_MARGIN
@@ -1430,7 +1437,7 @@ def appendix_tex(entries, staged, page, level, single=False):
     out = [pre + _APPENDIX_COMMON]
     if single:
         out.append(r"\pagestyle{empty}")       # cropped PNGs: no footer, no label
-    else:
+    elif label:
         out.append(stamp_hook())
     out += [r"\begin{document}", r"\color{ldztext}"]
     if not single:
@@ -1459,7 +1466,7 @@ def _compile_clean(figapp, job):
 APPENDIX_LEVELS = ("full", "png", "minimal")
 
 
-def build_fig_appendix(entries, figapp, page):
+def build_fig_appendix(entries, figapp, page, label=True):
     """Typeset the appendix; return (pdf_path, level), or (None, None). Falls
     back a level at a time: the designed page with the original figure files,
     then with the rasterised PNGs (a figure pdflatex chokes on), then base
@@ -1469,7 +1476,7 @@ def build_fig_appendix(entries, figapp, page):
         os.makedirs(d, exist_ok=True)
         staged = _stage_figures(entries, d, originals=(level == "full"))
         with open(os.path.join(d, "figures.tex"), "w", encoding="utf-8") as f:
-            f.write(appendix_tex(entries, staged, page, level))
+            f.write(appendix_tex(entries, staged, page, level, label=label))
         if _compile_clean(d, "figures"):
             if level != "full":
                 warn(f"warning: figure appendix fell back to the '{level}' style")
@@ -1611,22 +1618,23 @@ def stamp_hook():
     )
 
 
-def runtex(build):
+def runtex(build, label=True):
     subprocess.run(["pdflatex", "-interaction=nonstopmode", "-jobname=diff",
-                    _creator_hook() + stamp_hook() + r"\input{diff.tex}"],
+                    _creator_hook() + (stamp_hook() if label else "")
+                    + r"\input{diff.tex}"],
                    cwd=build, stdout=DEVNULL, stderr=DEVNULL)
 
 
-def build_diff_pdf(build, main_new, bib_inline=False):
+def build_diff_pdf(build, main_new, bib_inline=False, label=True):
     """The fixed pdflatex -> bib backend -> pdflatex x2 sequence, ignoring
     non-zero exits (latexdiff markup routinely trips minor errors; the classic
     sequence still converges where latexmk stops too early). `bib_inline` says
-    the diff already holds the formatted bibliography (expanded .bbl). Returns
-    whether a diff.pdf came out."""
+    the diff already holds the formatted bibliography (expanded .bbl), `label`
+    adds the page label. Returns whether a diff.pdf came out."""
     for f in ("diff.aux", "diff.bbl", "diff.bcf", "diff.blg", "diff.pdf"):
         remove(os.path.join(build, f))
 
-    runtex(build)                                 # pass 1: write .aux
+    runtex(build, label)                          # pass 1: write .aux
 
     diff_aux = os.path.join(build, "diff.aux")
     diff_bcf = os.path.join(build, "diff.bcf")
@@ -1657,8 +1665,8 @@ def build_diff_pdf(build, main_new, bib_inline=False):
         if os.path.isfile(shipped) and os.path.getsize(shipped) > 0:
             shutil.copy(shipped, diff_bbl)
 
-    runtex(build)                                 # pass 2: pull in .bbl, resolve labels
-    runtex(build)                                 # pass 3: read \bibcite back
+    runtex(build, label)                          # pass 2: pull in .bbl, resolve labels
+    runtex(build, label)                          # pass 3: read \bibcite back
     return os.path.isfile(os.path.join(build, "diff.pdf"))
 
 
@@ -1685,6 +1693,7 @@ def main(argv):
     out_pdf = args["out_pdf"]
     diff_type = args["diff_type"]
     embed_figs = args["embed_figs"]
+    page_label = args["page_label"]
     fig_dir = args["fig_dir"]
     old_arc = args["old_arc"]
     new_arc = args["new_arc"]
@@ -1874,7 +1883,7 @@ def main(argv):
 
         say("building PDF...")
         cur_old, cur_new, bib_inline = old_flat, new_flat, bbl_expanded
-        ok = build_diff_pdf(build, main_new, bib_inline)
+        ok = build_diff_pdf(build, main_new, bib_inline, page_label)
         # latexdiff markup inside a formatted bibliography occasionally produces
         # unbuildable TeX; redo the diff from the unexpanded flats (giving up
         # only the bibliography markup) rather than fail.
@@ -1882,13 +1891,13 @@ def main(argv):
             warn("warning: build failed with expanded bibliographies; retrying without them")
             cur_old, cur_new, bib_inline = old_flat_noexp, new_flat_noexp, False
             run_latexdiff(cur_old, cur_new, gfx)
-            ok = build_diff_pdf(build, main_new, bib_inline)
+            ok = build_diff_pdf(build, main_new, bib_inline, page_label)
         # Deleted-figure markup is the other thing that can make a document
         # unbuildable; shed that too rather than fail.
         if not ok and gfx:
             warn("warning: build failed with deleted-figure markup; retrying without it")
             run_latexdiff(cur_old, cur_new, [])
-            build_diff_pdf(build, main_new, bib_inline)
+            build_diff_pdf(build, main_new, bib_inline, page_label)
 
         if not os.path.isfile(os.path.join(build, "diff.pdf")):
             warn("error: PDF build failed. Tail of diff.log:")
@@ -1905,7 +1914,7 @@ def main(argv):
         if figs and (embed_figs or fig_dir):
             page = appendix_page_size(pdf_page_size(out_pdf))
             figapp = os.path.join(tmp, "figapp")
-            figures_pdf, level = build_fig_appendix(figs, figapp, page)
+            figures_pdf, level = build_fig_appendix(figs, figapp, page, page_label)
 
             if fig_dir:
                 n = export_fig_pngs(figs, figapp, page, level or "minimal", fig_dir)

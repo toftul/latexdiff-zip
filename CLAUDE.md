@@ -29,7 +29,7 @@ It is delivered at three layers, each wrapping the one below:
 ```sh
 # Run the engine directly (needs host deps: python3, latexdiff, latexpand,
 # pdflatex, bibtex/biber, + optional: ImageMagick, pdfunite/gs)
-./latexdiff-zip.py [-m old-main.tex] [-M new-main.tex] [-o out.pdf] [-t TYPE] [-F] [-c DIR] OLD NEW
+./latexdiff-zip.py [-m old-main.tex] [-M new-main.tex] [-o out.pdf] [-t TYPE] [-F] [-L] [-c DIR] OLD NEW
 
 # Containerized CLI (builds image on first use; --build forces rebuild)
 ./latexdiff-zip-podman.sh old.zip new.zip
@@ -110,8 +110,9 @@ without it the import fails silently. `tests/test_version.py` checks that, and f
   itself and drops the repository address on narrow pages, and skips beamer
   (`\usebeamertemplate`), whose navigation fills that corner. The appendix includes the same
   hook, and its `footskip` puts "Figure changes · A1" on the label's baseline
-  (`STAMP_BASELINE`). The `-c` PNGs have no label. The oracle checks one label per page in
-  every PDF.
+  (`STAMP_BASELINE`). The `-c` PNGs have no label. `-L`/`--no-label` (web: "Credit
+  footer") drops the label from the diff and the appendix; the appendix footer and the
+  Creator field stay. The oracle checks one label per page in every PDF, none with `-L`.
 - The PDF's Creator is set twice on purpose: `_creator_hook` (a `\AtBeginDocument` hook
   passed on pdflatex's command line, via `\hypersetup` when hyperref is loaded) for a diff
   with no appendix, and a `DOCINFO` pdfmark in the gs merge, because gs lets the later file's

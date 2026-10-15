@@ -221,6 +221,11 @@ class AppendixTexTest(unittest.TestCase):
         self.assertIn(E.stamp_hook(), self.tex("minimal"))
         self.assertNotIn("ldzstamp", self.tex("full", single=True))
 
+    def test_no_label_drops_the_label_but_keeps_the_footer(self):     # -L
+        tex = self.tex("full", label=False)
+        self.assertNotIn("ldzstamp", tex)
+        self.assertIn(r"\ldzfoot", tex)
+
     def test_overview_links_every_comparison(self):
         tex = self.tex("full")
         self.assertIn(r"\pdfbookmark[0]{Figure changes}", tex)

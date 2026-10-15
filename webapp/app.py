@@ -370,6 +370,7 @@ def create_job():
     main_tex_old = (request.form.get("main_tex_old") or "").strip()
     main_tex_new = (request.form.get("main_tex_new") or "").strip()
     embed_figs = request.form.get("embed_figs") == "on"
+    page_label = request.form.get("page_label") == "on"
 
     _cleanup_old_jobs()
 
@@ -404,10 +405,12 @@ def create_job():
         cmd += ["-M", main_tex_new]
     if not embed_figs:
         cmd += ["-F"]
+    if not page_label:
+        cmd += ["-L"]
     cmd += args
 
     open(os.path.join(job_dir, "status"), "w").write("RUNNING")
-    _log(f"job {job_id} started: {diff_type}, embed={embed_figs}, "
+    _log(f"job {job_id} started: {diff_type}, embed={embed_figs}, label={page_label}, "
          f"main_old={main_tex_old or 'auto'}, main_new={main_tex_new or 'auto'}, "
          f"inputs: {descs[0]} vs {descs[1]}")
     threading.Thread(target=_run_build, args=(job_dir, cmd), daemon=True).start()

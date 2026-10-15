@@ -10,6 +10,12 @@ diff PDF names it in its Creator field.
 
 ## [Unreleased]
 
+### Added
+
+- `-L` / `--no-label` removes the "Made with latexdiff-zip" label from every page of the diff
+  PDF and the figure appendix. The label is still on by default. The web page has a "Credit
+  footer" checkbox in Options for the same setting, and the browser remembers it.
+
 ## [2.3.3] - 2026-10-14
 
 ### Added

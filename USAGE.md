@@ -3,7 +3,7 @@
 [← back to README](README.md)
 
 ```sh
-./latexdiff-zip.py [-m old-main.tex] [-M new-main.tex] [-o output.pdf] [-t TYPE] [-F] [-c DIR] OLD NEW
+./latexdiff-zip.py [-m old-main.tex] [-M new-main.tex] [-o output.pdf] [-t TYPE] [-F] [-L] [-c DIR] OLD NEW
 ```
 
 It produces a [`latexdiff`](https://ctan.org/pkg/latexdiff) PDF between two LaTeX project
@@ -52,6 +52,7 @@ container.
 | `-o output.pdf` | Output PDF path. Defaults to `diff.pdf` next to the `NEW` archive. |
 | `-t TYPE` | `latexdiff --type` value (`UNDERLINE`, `CFONT`, `CCHANGEBAR`, …), or `BLUE`: added text in blue, deleted text not shown. Default: `UNDERLINE`. |
 | `-F` | Do **not** add the figure comparison appendix to the PDF (added by default). |
+| `-L`, `--no-label` | Do **not** print the "Made with latexdiff-zip" label at the bottom of each page (printed by default). |
 | `-c DIR` | Also save each figure comparison as a PNG in `DIR`. |
 | `-V`, `--version` | Print the version and exit. Each run also prints it on the first line of its log. |
 | `-h` | Show help. |
@@ -166,6 +167,8 @@ podman run --rm --userns=keep-id -v "$PWD":/work:Z latexdiff-zip old.zip new.zip
 - Each page gets a small gray label at the bottom right, below the document's own footer:
   "Made with latexdiff-zip vX.Y.Z", the website, and the GitHub repository. pdflatex adds it
   when it writes each page, so the diff source is not changed. Beamer slides get no label.
+  `-L` removes the label from every page. The appendix keeps its "Figure changes" footer,
+  and the PDF's Creator field still names the tool.
 - `pdflatex` runs without `-halt-on-error`: `latexdiff` markup often trips minor errors, so
   the build pushes through them. If no PDF is produced, the tail of `diff.log` is printed.
 - Each project's main file is detected independently, so the two may have different
